@@ -7,20 +7,14 @@ use GovBrSatisfaction\Entities\SatisfactionRequest;
 use MapasCulturais\App;
 use Tests\Traits\SpaceDirector;
 
-/**
- * O conteúdo enviado ao BSC
- *
- * O contrato é de outra equipe, e um campo com nome ou formato errado só
- * apareceria como recusa silenciosa — a API não devolve confirmação e o plugin
- * não lê a resposta.
- */
+/** O corpo enviado, contra o model do swagger. */
 class PayloadTest extends TestCase
 {
     use SpaceDirector;
 
     protected function montar(): array
     {
-        $this->publicar($this->spaceDirector->createSpace($this->cidadao->profile));
+        $this->publicarEspaco();
 
         $id = (int) $this->solicitacoes()[0]['id'];
         $request = App::i()->repo(SatisfactionRequest::class)->find($id);
@@ -28,22 +22,44 @@ class PayloadTest extends TestCase
         return Payload::build($request, self::CPF);
     }
 
-    function testLevaOsCamposObrigatoriosDaApi()
+    /** Igualdade do conjunto de campos. */
+    function testLevaExatamenteOsCamposDoContrato()
     {
         $payload = $this->montar();
 
-        foreach (['cpfCidadao', 'cpfConsulta', 'nomeCidadao', 'email', 'usuario', 'orgao', 'servico',
-                  'sistemaSolicitante', 'canalPrestacao', 'canalAvaliacao', 'etapa',
-                  'situacaoEtapa', 'dataEtapa', 'dataSituacaoEtapa',
-                  'ipOrigem', 'ipUsuario'] as $campo) {
-            $this->assertArrayHasKey($campo, $payload);
-        }
+        $contrato = [
+            'cacheEvict', 'canalAvaliacao', 'canalPrestacao', 'cpfCidadao', 'cpfConsulta',
+            'dataEtapa', 'dataSituacaoEtapa', 'email', 'etapa', 'ipOrigem', 'ipUsuario',
+            'nomeCidadao', 'orgao', 'servico', 'sistemaSolicitante', 'situacaoEtapa', 'usuario',
+        ];
+
+        $this->assertSame($contrato, array_keys($payload));
     }
 
-    /**
-     * O endpoint de avaliação completa gera o protocolo do lado do BSC. Mandar
-     * um seria enviar campo que o contrato não declara.
-     */
+    /** Códigos e ids como string. */
+    function testCodigosEIdsSaoStringComoNoContrato()
+    {
+        $payload = $this->montar();
+
+        foreach (['canalAvaliacao', 'canalPrestacao', 'cpfCidadao', 'cpfConsulta', 'orgao', 'servico',
+                  'situacaoEtapa', 'usuario'] as $campo) {
+            $this->assertIsString($payload[$campo], "{$campo} é string no contrato");
+            $this->assertMatchesRegularExpression('/^\d+$/', $payload[$campo], "{$campo} deve ser só dígitos");
+        }
+
+        $this->assertFalse($payload['cacheEvict']);
+    }
+
+    /** UTF-8 inválido vira U+FFFD. */
+    function testEncodeSubstituiUtf8Invalido()
+    {
+        $json = Payload::encode(['nomeCidadao' => "Jo\xE3o"]);
+
+        $this->assertIsArray(json_decode($json, true));
+        $this->assertStringContainsString("Jo\u{FFFD}o", $json);
+    }
+
+    /** O protocolo é gerado pelo BSC. */
     function testNaoMandaProtocolo()
     {
         $this->assertArrayNotHasKey('protocolo', $this->montar());
@@ -74,10 +90,7 @@ class PayloadTest extends TestCase
         $this->assertSame('2', $payload['situacaoEtapa']);
     }
 
-    /**
-     * O CPF é lido do cadastro, com máscara ou sem — o cadastro local grava
-     * formatado e o login gov.br grava só os dígitos.
-     */
+    /** O cadastro local grava com máscara; o login gov.br, sem. */
     function testLeOCpfComOuSemMascara()
     {
         $campo = $this->plugin()->config['metadataFieldCPF'];
@@ -91,10 +104,6 @@ class PayloadTest extends TestCase
         $this->assertSame(self::CPF, Payload::cpf($this->cidadao, $campo));
     }
 
-    /**
-     * `usuario` identifica quem fez a requisição, e o contrato aceita login,
-     * cpf ou identificador. Vai o CPF, que é o que o gov.br reconhece.
-     */
     function testUsuarioEhOCpf()
     {
         $payload = $this->montar();
@@ -102,9 +111,6 @@ class PayloadTest extends TestCase
         $this->assertSame($payload['cpfCidadao'], $payload['usuario']);
     }
 
-    /**
-     * Quem concluiu o serviço é a mesma pessoa que a avaliação consulta.
-     */
     function testCpfConsultaAcompanhaODoCidadao()
     {
         $payload = $this->montar();
@@ -113,15 +119,11 @@ class PayloadTest extends TestCase
     }
 
     /**
-     * Auditoria precisa do que saiu, não do que sairia hoje.
-     *
-     * Sem a cópia, o painel reconstruiria o conteúdo a partir do cadastro atual
-     * — e quem corrigiu o CPF ou trocou o e-mail depois do envio apareceria com
-     * os valores de agora, afirmando que foram esses que foram enviados.
+     * A cópia é byte a byte o que foi para o fio.
      */
     function testGuardaOConteudoEnviado()
     {
-        $this->publicar($this->spaceDirector->createSpace($this->cidadao->profile));
+        $this->publicarEspaco();
         $this->processarEnvios();
 
         $linha = $this->solicitacoes()[0];
@@ -130,24 +132,22 @@ class PayloadTest extends TestCase
         $this->assertIsArray($guardado, 'o conteúdo enviado não foi guardado');
         $this->assertSame(self::CPF, $guardado['cpfCidadao']);
         $this->assertSame($this->servico('espaco'), $guardado['servico']);
+
+        $this->assertSame(Payload::encode($guardado), $linha['send_payload']);
+        $this->assertStringContainsString('"dataEtapa":"' . $guardado['dataEtapa'] . '"', $linha['send_payload']);
+        $this->assertStringNotContainsString('\/', $linha['send_payload']);
     }
 
-    /**
-     * E a cópia não acompanha mudanças posteriores do cadastro.
-     */
+    /** A cópia não acompanha o cadastro. */
     function testOConteudoGuardadoNaoMudaComOCadastro()
     {
-        $this->publicar($this->spaceDirector->createSpace($this->cidadao->profile));
+        $this->publicarEspaco();
         $this->processarEnvios();
 
         $antes = $this->solicitacoes()[0]['send_payload'];
 
         $app = App::i();
-
-        // processarEnvios() limpa o EntityManager, então o agente em memória
-        // está destacado; alterá-lo direto faria o Doctrine tentar persistir de
-        // novo as associações inteiras
-        $agente = $app->repo('Agent')->find($this->cidadao->profile->id);
+        $agente = $this->perfilAtual();
 
         $app->disableAccessControl();
         $agente->name = 'Nome Trocado Depois do Envio';

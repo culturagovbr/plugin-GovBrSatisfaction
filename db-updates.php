@@ -4,16 +4,6 @@ use function MapasCulturais\__column_exists;
 use function MapasCulturais\__table_exists;
 use function MapasCulturais\__exec;
 
-/**
- * Atualizações de banco do plugin.
- *
- * A chave leva o nome da tabela: App::_dbUpdates() junta os arquivos com `+=`,
- * e chaves repetidas entre plugins descartariam uma em silêncio.
- *
- * `__exec` e não `__try`, que engole a exceção: o core só deixa de marcar o
- * update como aplicado quando a closure lança, então uma falha silenciosa
- * deixaria a tabela por criar para sempre.
- */
 return [
     'create govbr_satisfaction_request table' => function () {
         if (__table_exists('govbr_satisfaction_request')) {
@@ -51,13 +41,9 @@ return [
             ADD CONSTRAINT FK_govbr_satisfaction_request_subsite
             FOREIGN KEY (subsite_id) REFERENCES subsite (id) ON DELETE SET NULL");
 
-        // A regra é uma avaliação por serviço, por usuário, para sempre. O índice
-        // único é o que garante isso sob concorrência — duas publicações
-        // simultâneas não criam dois registros.
         __exec("CREATE UNIQUE INDEX UNQ_govbr_satisfaction_request__user_servico
             ON govbr_satisfaction_request (user_id, servico)");
 
-        // O job varre pendentes; o painel filtra por situação e por ambiente.
         __exec("CREATE INDEX IDX_govbr_satisfaction_request__subsite
             ON govbr_satisfaction_request (subsite_id)");
         __exec("CREATE INDEX IDX_govbr_satisfaction_request__send_status
@@ -66,9 +52,6 @@ return [
             ON govbr_satisfaction_request (create_timestamp)");
     },
 
-    // Entrada própria, e não acrescentada à criação: instalações que já rodaram
-    // a primeira têm a tabela sem esta coluna, e o guarda de __table_exists
-    // faria aquele bloco inteiro ser pulado.
     'add send_attempts to govbr_satisfaction_request' => function () {
         if (__column_exists('govbr_satisfaction_request', 'send_attempts')) {
             return;
@@ -88,9 +71,6 @@ return [
             ADD COLUMN send_detail VARCHAR(500) NULL");
     },
 
-    // O corpo inteiro, sem truncar. `send_detail` continua existindo como o
-    // resumo que a tabela do painel mostra — derivar isso a cada listagem
-    // obrigaria a trazer o corpo completo de 25 linhas só para exibir uma frase.
     'add send_response to govbr_satisfaction_request' => function () {
         if (__column_exists('govbr_satisfaction_request', 'send_response')) {
             return;

@@ -21,7 +21,7 @@ $this->import('
     </mc-alert>
 
     <mc-alert type="danger" v-if="status.faltando.length">
-        {{ text('faltandoConfig').replace('%s', status.faltando.join(', ')) }}
+        {{ fmt('faltandoConfig', status.faltando.join(', ')) }}
     </mc-alert>
 
     <mc-card>
@@ -60,26 +60,9 @@ $this->import('
                 </div>
             </div>
 
-            <!--
-                O spinner só aparece quando não há nada na tela. Escondendo a
-                tabela a cada "Carregar Mais", a lista sumiria e voltaria a cada
-                avanço — o contrário do que a acumulação existe para fazer, que é
-                não perder o lugar. Enquanto carrega, o botão fica desabilitado.
-            -->
             <mc-loading :condition="carregando && !registros.length"></mc-loading>
 
-            <!--
-                Lista vazia por filtro e lista vazia de verdade usam o mesmo
-                bloco: nos dois casos não há nada de errado acontecendo, e um
-                aviso colorido daria a essa situação um peso que ela não tem. O
-                que muda é a mensagem, e a saída oferecida.
-
-                A condição é escrita por inteiro em vez de `v-else-if`: o irmão
-                acima é um componente com a prop `condition`, não uma diretiva,
-                e encadear nele deixaria o `v-else-if` sem `v-if` adjacente —
-                o Vue não resolveria a diretiva e o bloco apareceria sempre,
-                empilhado sobre a tabela cheia.
-            -->
+            <!-- lista vazia -->
             <div class="govbr-satisfaction__empty" v-if="!registros.length && !carregando">
                 <mc-icon name="govbr-satisfaction"></mc-icon>
 
@@ -131,17 +114,6 @@ $this->import('
                                         <span>{{ text(registro.situacao) }}</span>
                                     </span>
 
-                                    <!--
-                                        O que a API respondeu, quando há algo a
-                                        dizer. Sem isto, "Recusado" não explica
-                                        se o problema é do payload ou do BSC, e a
-                                        resposta só existiria no log do servidor.
-
-                                        Só a mensagem: o código HTTP fica na
-                                        coluna, para quem for investigar, mas na
-                                        tabela seria ruído — "Avaliação já
-                                        enviada" diz o que importa, "500" não.
-                                    -->
                                     <small class="govbr-satisfaction__detalhe" v-if="registro.detalhe" :title="registro.detalhe">
                                         {{ resumo(registro.detalhe) }}
                                     </small>
@@ -151,6 +123,34 @@ $this->import('
                                 <td class="govbr-satisfaction__date">{{ quando(registro.disparada) }}</td>
 
                                 <td class="govbr-satisfaction__table-actions">
+                                    <mc-modal classes="govbr-satisfaction__modal" :title="text('devolverTitulo')" v-if="podeDevolver(registro)">
+                                        <template #default>
+                                            <p>{{ text(registro.situacao === 'sem-cpf' ? 'devolverConfirmacaoSemCpf' : 'devolverConfirmacao') }}</p>
+                                            <p class="govbr-satisfaction__nota" v-if="registro.situacao === 'recusado'">
+                                                {{ fmt('tentativas', registro.tentativas) }}
+                                            </p>
+                                        </template>
+
+                                        <template #actions="modal">
+                                            <button class="button button--text button--md" @click="modal.close()">
+                                                <?= i::__('Cancelar') ?>
+                                            </button>
+                                            <button
+                                                class="button button--primary button--md"
+                                                :class="{disabled: devolvendo === registro.id}"
+                                                :disabled="devolvendo === registro.id"
+                                                @click="devolverAFila(registro, modal)">
+                                                <?= i::__('Confirmar') ?>
+                                            </button>
+                                        </template>
+
+                                        <template #button="modal">
+                                            <button class="button button--primary-outline button--sm" @click="modal.open()">
+                                                {{ text('devolver') }}
+                                            </button>
+                                        </template>
+                                    </mc-modal>
+
                                     <mc-modal classes="govbr-satisfaction__modal" :title="text('payloadTitulo')">
                                         <template #button="{open}">
                                             <button class="button button--primary-outline button--sm" @click="verPayload(registro.id, open)">
@@ -159,12 +159,9 @@ $this->import('
                                         </template>
 
                                         <template #default>
-                                            <!--
-                                                O que saiu vem antes do que voltou:
-                                                a leitura natural é "enviei isto,
-                                                recebi aquilo", e em auditoria o
-                                                payload é o documento principal.
-                                            -->
+                                            <!-- anúncio para leitor de tela -->
+                                            <span class="govbr-satisfaction__sr-only" aria-live="polite">{{ copiado ? text('copiado') : '' }}</span>
+
                                             <div class="govbr-satisfaction__bloco">
                                                 <h4>
                                                     {{ text('payloadTitulo') }}
@@ -181,13 +178,6 @@ $this->import('
                                                     </button>
                                                 </h4>
 
-                                                <!--
-                                                    Só na prévia. Enviado sempre
-                                                    tem cópia: sendPayload é
-                                                    gravado no mesmo save que
-                                                    marca STATUS_SENT, então não
-                                                    existe enviado sem ela.
-                                                -->
                                                 <p class="govbr-satisfaction__nota" v-if="payloadReconstruido">{{ text('payloadPrevia') }}</p>
 
                                                 <mc-loading :condition="carregandoPayload"></mc-loading>
@@ -197,23 +187,23 @@ $this->import('
                                                 <pre class="govbr-satisfaction__corpo" v-else-if="!carregandoPayload && payload">{{ formatarJson(payload) }}</pre>
                                             </div>
 
-                                            <div class="govbr-satisfaction__bloco" v-if="registro.detalhe || registro.resposta">
+                                            <div class="govbr-satisfaction__bloco" v-if="registro.detalhe || resposta">
                                                 <h4>
-                                                    {{ text('respostaTitulo') }}
+                                                    {{ text(registro.situacao === 'pendente' ? 'ultimaRespostaTitulo' : 'respostaTitulo') }}
                                                     <span class="govbr-satisfaction__http" v-if="registro.httpStatus">HTTP {{ registro.httpStatus }}</span>
 
                                                     <button
                                                         type="button"
                                                         class="govbr-satisfaction__copiar"
-                                                        v-if="registro.resposta"
-                                                        @click="copiar(formatarResposta(registro.resposta), 'resposta-' + registro.id)">
+                                                        v-if="resposta"
+                                                        @click="copiar(formatarResposta(resposta), 'resposta-' + registro.id)">
                                                         {{ copiado === 'resposta-' + registro.id ? text('copiado') : text('copiar') }}
                                                     </button>
                                                 </h4>
 
                                                 <p class="govbr-satisfaction__nota" v-if="registro.detalhe">{{ registro.detalhe }}</p>
 
-                                                <pre class="govbr-satisfaction__corpo" v-if="registro.resposta">{{ formatarResposta(registro.resposta) }}</pre>
+                                                <pre class="govbr-satisfaction__corpo" v-if="resposta">{{ formatarResposta(resposta) }}</pre>
                                             </div>
                                         </template>
                                     </mc-modal>
@@ -225,7 +215,7 @@ $this->import('
 
                 <div class="govbr-satisfaction__more" v-if="pagina < paginas">
                     <span class="govbr-satisfaction__hint">
-                        {{ text('contagem').replace('%1', registros.length).replace('%2', total) }}
+                        {{ fmt('contagem', registros.length, total) }}
                     </span>
 
                     <button

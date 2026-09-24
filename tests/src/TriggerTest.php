@@ -4,26 +4,41 @@ namespace Tests\GovBrSatisfaction;
 
 use MapasCulturais\App;
 use MapasCulturais\Entity;
+use Tests\Builders\PhasePeriods\Open;
 use Tests\Traits\EventDirector;
+use Tests\Traits\OpportunityBuilder;
 use Tests\Traits\ProjectDirector;
 use Tests\Traits\SpaceDirector;
 
-/**
- * O que dispara uma solicitação
- *
- * O gatilho é a publicação, e não a criação: as entidades do Mapas nascem como
- * rascunho, e pesquisar satisfação de um rascunho abandonado seria perguntar
- * sobre um serviço que a pessoa não concluiu.
- */
+/** O que dispara uma solicitação. */
 class TriggerTest extends TestCase
 {
     use EventDirector;
+    use OpportunityBuilder;
     use ProjectDirector;
     use SpaceDirector;
 
+    /** Opportunity: tipo normalizado. */
+    function testPublicarOportunidadeRegistra()
+    {
+        $oportunidade = $this->opportunityBuilder
+            ->reset(owner: $this->cidadao->profile, owner_entity: $this->cidadao->profile)
+            ->fillRequiredProperties()
+            ->firstPhase()
+                ->setRegistrationPeriod(new Open)
+                ->done()
+            ->save()
+            ->getInstance();
+
+        $this->publicar($oportunidade);
+
+        $this->assertSame(1, $this->contar("servico = '{$this->servico('oportunidade')}'"));
+        $this->assertSame('Opportunity', $this->solicitacoes()[0]['object_type']);
+    }
+
     function testPublicarEspacoRegistra()
     {
-        $this->publicar($this->spaceDirector->createSpace($this->cidadao->profile));
+        $this->publicarEspaco();
 
         $this->assertSame(1, $this->contar("servico = '{$this->servico('espaco')}'"));
     }
@@ -42,11 +57,7 @@ class TriggerTest extends TestCase
         $this->assertSame(1, $this->contar("servico = '{$this->servico('evento')}'"));
     }
 
-    /**
-     * "Cadastrar-se" se conclui quando a pessoa confirma o e-mail, e não quando
-     * a conta é criada: a pesquisa é entregue naquele endereço, e confirmar é a
-     * prova de que ele existe e é dela.
-     */
+    /** Cadastrar-se: confirmação do e-mail. */
     function testConfirmarEmailRegistra()
     {
         $this->confirmarEmail($this->criarCidadao());
@@ -61,11 +72,7 @@ class TriggerTest extends TestCase
         $this->assertSame(0, $this->contar("servico = '{$this->servico('cadastro')}'"));
     }
 
-    /**
-     * A situação é definida antes do insert, e não depois: as entidades nascem
-     * com STATUS_ENABLED, então salvar e só então rebaixar para rascunho seria
-     * publicar e despublicar — o que de fato é serviço concluído.
-     */
+    /** Rascunho não registra. */
     function testRascunhoNaoRegistra()
     {
         $espaco = $this->spaceDirector->createSpace($this->cidadao->profile, save: false);
@@ -79,11 +86,7 @@ class TriggerTest extends TestCase
         $this->assertSame(0, $this->contar("servico = '{$this->servico('espaco')}'"));
     }
 
-    /**
-     * O agente individual é o cadastro da própria pessoa, já coberto por
-     * "Cadastrar-se". Contá-lo como coletivo faria a mesma pessoa aparecer duas
-     * vezes por um serviço que prestou uma.
-     */
+    /** Agente individual não conta como coletivo. */
     function testAgenteIndividualNaoContaComoColetivo()
     {
         $this->publicar($this->criarAgente(1));
@@ -98,10 +101,6 @@ class TriggerTest extends TestCase
         $this->assertSame(1, $this->contar("servico = '{$this->servico('coletivo')}'"));
     }
 
-    /**
-     * A entidade que originou o disparo fica gravada para auditoria, com o tipo
-     * normalizado pelo core — Opportunity, e não AgentOpportunity.
-     */
     function testGuardaAOrigemDoDisparo()
     {
         $espaco = $this->spaceDirector->createSpace($this->cidadao->profile);
@@ -114,13 +113,64 @@ class TriggerTest extends TestCase
     }
 
     /**
-     * "Criar e publicar" numa etapa também é serviço concluído.
+     * Só o primeiro IP do cabeçalho, até 45 chars.
      *
-     * Agent, Event, Space e Project nascem com STATUS_ENABLED. Quem preenche o
-     * formulário e publica de uma vez nunca passa por rascunho, então o gancho
-     * de mudança de situação ou não dispara, ou dispara com a situação já
-     * publicada — e a guarda que impede republicar descarta o caso.
+     * @dataProvider cabecalhosDeIp
      */
+    function testGuardaSoOPrimeiroIpDoCabecalho(?string $cabecalho, ?string $esperado)
+    {
+        $this->assertSame($esperado, \GovBrSatisfaction\Services\SatisfactionRegistry::primeiroIp($cabecalho));
+    }
+
+    public static function cabecalhosDeIp(): array
+    {
+        return [
+            'um ip' => ['10.0.0.1', '10.0.0.1'],
+            'cadeia de proxies' => ['10.0.0.1, 172.16.0.1, 192.168.0.1', '10.0.0.1'],
+            'ipv6 com espaços' => [' 2001:db8::1 , 10.0.0.1', '2001:db8::1'],
+            'vazio' => ['', null],
+            'nulo' => [null, null],
+            'longo demais' => [str_repeat('9', 60), str_repeat('9', 45)],
+        ];
+    }
+
+    /**
+     * Entidade que nasce publicada registra.
+     *
+     * @dataProvider entidadesQueNascemPublicadas
+     */
+    function testEntidadeQueNascePublicadaRegistra(string $servico, string $criar)
+    {
+        $this->$criar();
+
+        $this->assertSame(1, $this->contar("servico = '{$this->servico($servico)}'"), "{$servico} não registrou ao nascer publicado");
+    }
+
+    public static function entidadesQueNascemPublicadas(): array
+    {
+        return [
+            'evento' => ['evento', 'criarEvento'],
+            'projeto' => ['projeto', 'criarProjeto'],
+            'coletivo' => ['coletivo', 'criarColetivo'],
+        ];
+    }
+
+    protected function criarEvento(): void
+    {
+        $this->eventDirector->createEvent($this->cidadao->profile);
+    }
+
+    protected function criarProjeto(): void
+    {
+        $this->projectDirector->createProject($this->cidadao->profile);
+    }
+
+    protected function criarColetivo(): void
+    {
+        $this->criarAgente(2);
+    }
+
+    /** Criar e publicar numa etapa registra. */
     function testCriarJaPublicadoRegistra()
     {
         $this->criarPublicado($this->spaceDirector->createSpace($this->cidadao->profile));

@@ -7,13 +7,10 @@ use Doctrine\ORM\Mapping as ORM;
 /**
  * Solicitação de avaliação de satisfação enviada ao gov.br pelo BSC.
  *
- * Um registro por usuário e serviço, para sempre. A unicidade é do índice
- * (user_id, servico), não da entidade que originou o disparo: publicar o
- * segundo evento não gera solicitação nova. `objectType` e `objectId` ficam
- * como auditoria, fora da chave.
- *
- * CPF, nome e e-mail não são copiados — são lidos do usuário na hora do envio
- * e da exibição, o que mantém a rastreabilidade sem duplicar dado pessoal.
+ * Um registro por usuário e serviço, garantido pelo índice (user_id, servico).
+ * `objectType`/`objectId` são só auditoria. CPF, nome e e-mail não ficam em
+ * coluna própria — são lidos do usuário no envio —, mas `sendPayload` guarda
+ * a cópia do que saiu.
  *
  * @property int $id
  * @property \MapasCulturais\Entities\User $user
@@ -47,17 +44,13 @@ class SatisfactionRequest extends \MapasCulturais\Entity
     /** Registrada, ainda não processada pelo job. */
     const STATUS_PENDING = 'pendente';
 
-    /** O Mapa disparou a requisição. Não significa que o cidadão recebeu o e-mail. */
+    /** O Mapa disparou. Não significa que o cidadão recebeu o e-mail. */
     const STATUS_SENT = 'enviado';
 
-    /** Usuário sem CPF no cadastro: nada é enviado, mas o caso fica visível no painel. */
+    /** Usuário sem CPF no cadastro: nada é enviado, mas fica visível no painel. */
     const STATUS_NO_CPF = 'sem-cpf';
 
-    /**
-     * O BSC recusou em definitivo — credencial, permissão, serviço inexistente
-     * ou payload inválido. Ninguém foi convidado, e repetir não mudaria isso;
-     * é situação para alguém olhar, não para a fila insistir.
-     */
+    /** Recusa definitiva do BSC, ou teto de tentativas esgotado. */
     const STATUS_REJECTED = 'recusado';
 
     /**
@@ -88,14 +81,9 @@ class SatisfactionRequest extends \MapasCulturais\Entity
     protected $servico;
 
     /**
-     * Portal em que o serviço foi prestado, revalidado no envio.
-     *
-     * Id cru lido por getSubsite(), como MapasCulturais\Traits\EntityOriginSubsite:
-     * o getter mágico não enxerga um ManyToOne declarado aqui e devolveria nulo
-     * com a coluna preenchida, fazendo a revalidação recusar todo envio.
+     * Id do subsite; ver getSubsite().
      *
      * @var int|null
-     *
      * @ORM\Column(name="subsite_id", type="integer", nullable=true)
      */
     protected $_subsiteId;
@@ -115,11 +103,9 @@ class SatisfactionRequest extends \MapasCulturais\Entity
     protected $objectId;
 
     /**
-     * `sendStatus` e não `status`: Entity::setStatus() é tipado como int e
-     * colidiria. Mesmo motivo do `result` em AldirBlanc\Entities\CultBrRequestLog.
+     * Situação do envio (STATUS_*).
      *
      * @var string
-     *
      * @ORM\Column(name="send_status", type="string", length=32, nullable=false)
      */
     protected $sendStatus = self::STATUS_PENDING;
@@ -167,11 +153,9 @@ class SatisfactionRequest extends \MapasCulturais\Entity
     protected $orgao;
 
     /**
-     * Capturados no gatilho, não no envio: o job monta o payload em linha de
-     * comando, sem requisição, e leria o loopback do servidor.
+     * IPs capturados no gatilho.
      *
      * @var string|null
-     *
      * @ORM\Column(name="ip_origem", type="string", length=45, nullable=true)
      */
     protected $ipOrigem;
@@ -198,15 +182,9 @@ class SatisfactionRequest extends \MapasCulturais\Entity
     protected $sendTimestamp;
 
     /**
-     * Quantas vezes o envio foi tentado sem desfecho.
-     *
-     * Existe para que nenhuma linha fique retentando indefinidamente. O BSC
-     * devolve 500 tanto para indisponibilidade quanto para regra de negócio, e
-     * distinguir depende de casar o texto da mensagem — se a redação mudar, o
-     * caso vira laço. Este contador é o limite que não depende disso.
+     * Tentativas com 500 da aplicação.
      *
      * @var int
-     *
      * @ORM\Column(name="send_attempts", type="smallint", nullable=false)
      */
     protected $sendAttempts = 0;
@@ -221,15 +199,7 @@ class SatisfactionRequest extends \MapasCulturais\Entity
     protected $sendHttpStatus;
 
     /**
-     * Como o BSC descreveu o resultado, ou o erro de rede.
-     *
-     * Guardado para que a recusa seja diagnosticável no painel. Em homologação,
-     * "Avaliação já enviada", "no healthy upstream" e "Parâmetro(s) de entrada
-     * inválido(s)" chegam todos como erro 5xx ou 4xx genérico, e só a mensagem
-     * distingue um problema nosso de um problema deles.
-     *
-     * Truncado em 500: a resposta de erro traz a pilha inteira do Java, e o que
-     * interessa está nas primeiras linhas.
+     * Resumo da última resposta.
      *
      * @var string|null
      *
@@ -238,33 +208,16 @@ class SatisfactionRequest extends \MapasCulturais\Entity
     protected $sendDetail;
 
     /**
-     * O corpo da resposta do BSC, sem a pilha de exceção.
-     *
-     * Guardado porque a recusa traz campos que o swagger não documenta —
-     * `subErrors` com o motivo real, `codigoErro`, `protocolo` — e sem eles a
-     * situação no painel não explica nada.
-     *
-     * Sai apenas o ruído da plataforma deles: `stackTrace`, `suppressed`,
-     * `cause` e afins, que somam dezenas de milhares de caracteres por recusa
-     * sem dizer nada sobre o caso. Ver HttpClient::limpar().
+     * Corpo da última resposta, sem a pilha de exceção.
      *
      * @var string|null
-     *
      * @ORM\Column(name="send_response", type="text", nullable=true)
      */
     protected $sendResponse;
 
     /**
-     * O corpo que foi enviado, exatamente como saiu.
-     *
-     * Auditoria precisa do que aconteceu, não do que aconteceria hoje. Sem esta
-     * cópia, a tela reconstruiria o payload a partir do cadastro atual da
-     * pessoa: quem corrigiu o CPF ou trocou o e-mail depois do envio apareceria
-     * com os valores de agora, afirmando que foram esses que saíram.
-     *
-     * Implica guardar CPF, nome e e-mail aqui, o que este plugin evitava de
-     * propósito. É o preço de poder responder \"o que foi enviado\" — e o painel
-     * continua exibindo tudo mascarado.
+     * O corpo enviado, byte a byte. Guarda CPF, nome e e-mail: é o preço de
+     * responder "o que foi enviado" numa auditoria. O painel mostra mascarado.
      *
      * @var string|null
      *
@@ -293,20 +246,13 @@ class SatisfactionRequest extends \MapasCulturais\Entity
         parent::__construct();
     }
 
-    /**
-     * Registros de avaliação não usam o cache de permissões do core: não são
-     * entidades de conteúdo, e só o painel restrito os lê.
-     */
     public static function usesPermissionCache(): bool
     {
         return false;
     }
 
-    /**
-     * Leitura restrita a quem administra a instalação inteira, como o painel.
-     */
     protected function canUserView($user): bool
     {
-        return !$user->is('guest') && $user->is('saasSuperAdmin');
+        return $user->is(\GovBrSatisfaction\Plugin::ADMIN_ROLE);
     }
 }

@@ -5,13 +5,7 @@ namespace GovBrSatisfaction\Bsc;
 use MapasCulturais\App;
 
 /**
- * Transporte de desenvolvimento: não sai da máquina.
- *
- * O payload carrega CPF, nome e e-mail reais: disparar de desenvolvimento não
- * seria ruído no gov.br, seria vazamento. Aqui só vai para o log.
- *
- * É o padrão — sem `AVALIACAO_DEV_MODE` definido, roda esta. A falha segura é
- * não enviar.
+ * Transporte de desenvolvimento: só loga, nada sai da máquina.
  *
  * @package GovBrSatisfaction
  */
@@ -24,7 +18,7 @@ class FixtureClient implements Client
         $app->log->info(sprintf(
             '[GovBrSatisfaction] fixture: envio simulado para o serviço %s (nenhuma requisição HTTP foi feita) %s',
             $payload['servico'] ?? '?',
-            json_encode($this->mask($payload), JSON_UNESCAPED_UNICODE)
+            Payload::encode(Mascara::paraLog($payload))
         ));
 
         return new Result(
@@ -33,21 +27,5 @@ class FixtureClient implements Client
             'fixture: nenhuma requisição HTTP foi feita',
             json_encode(['emailEnviado' => true, 'protocolo' => 'FIXTURE'], JSON_UNESCAPED_UNICODE)
         );
-    }
-
-    /**
-     * O log da aplicação é lido por mais gente do que o banco. O payload vai
-     * para lá só como conferência de montagem, então CPF e e-mail aparecem
-     * encobertos.
-     */
-    private function mask(array $payload): array
-    {
-        foreach (['cpfCidadao', 'cpfConsulta', 'email', 'usuario', 'nomeCidadao'] as $field) {
-            if (!empty($payload[$field])) {
-                $payload[$field] = '***';
-            }
-        }
-
-        return $payload;
     }
 }

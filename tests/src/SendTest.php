@@ -2,49 +2,24 @@
 
 namespace Tests\GovBrSatisfaction;
 
-use GovBrSatisfaction\Bsc\Client;
 use GovBrSatisfaction\Bsc\Result;
 use GovBrSatisfaction\Services\SatisfactionSender;
-use Tests\Traits\SpaceDirector;
+use MapasCulturais\App;
+use Tests\Traits\ProjectDirector;
 
-/**
- * O envio
- *
- * A suíte roda com o transporte de desenvolvimento, então nada sai da máquina. O
- * que se observa aqui é o registro: a situação, o carimbo de tempo e o fato de
- * uma solicitação nunca ser processada duas vezes.
- */
+/** O envio: situação, carimbo, retentativa. */
 class SendTest extends TestCase
 {
-    use SpaceDirector;
+    use ProjectDirector;
 
     /** Recusa real do BSC de homologação, com o motivo em `subErrors`. */
     const CORPO_RECUSA = '{"status":"BAD_REQUEST","message":"Parâmetro(s) de entrada inválido(s)",'
         . '"subErrors":[{"message":"Favor preencher o campo linkBotao."}],"codigoErro":1790278898}';
 
-    protected function publicarEspaco(): void
-    {
-        $this->publicar($this->spaceDirector->createSpace($this->cidadao->profile));
-    }
-
-    /**
-     * Credencial recusada não pode marcar como convidado quem não foi.
-     *
-     * A marcação vem antes da chamada para cobrir o caso ambíguo — morrer no
-     * meio do POST. Falha de token não é ambígua: nada saiu, e sem isto a linha
-     * ficaria `enviado` para sempre, já que o job só relê pendentes.
-     */
     function testEnvioQueNaoSaiVoltaAPendente()
     {
         $this->publicarEspaco();
-
-        // transporte que falha antes de despachar, como o BSC sem token válido
-        $this->configurar(['client' => new class implements Client {
-            public function send(array $payload): Result
-            {
-                return new Result(Result::RETRY, 503, 'no healthy upstream');
-            }
-        }]);
+        $this->configurar(['client' => $this->clienteQueDevolve(new Result(Result::RETRY, 503, 'no healthy upstream'))]);
 
         $this->processarEnvios();
 
@@ -54,27 +29,13 @@ class SendTest extends TestCase
         $this->assertNull($linha['send_timestamp'], 'carimbo de envio ficou preenchido sem envio');
     }
 
-    /**
-     * Recusa definitiva não pode passar por convite entregue.
-     *
-     * 401, 403 e 404 não melhoram com repetição, mas isso não faz o cidadão ter
-     * sido convidado. Sai da fila e fica visível no painel para alguém olhar.
-     */
+    /** Recusa definitiva sai da fila com o que a API respondeu. */
     function testRecusaDefinitivaNaoContaComoEnviada()
     {
         $this->publicarEspaco();
-
-        $this->configurar(['client' => new class implements Client {
-            public function send(array $payload): Result
-            {
-                return new Result(
-                    Result::REJECTED,
-                    400,
-                    'Parâmetro(s) de entrada inválido(s)',
-                    SendTest::CORPO_RECUSA
-                );
-            }
-        }]);
+        $this->configurar(['client' => $this->clienteQueDevolve(
+            new Result(Result::REJECTED, 400, 'Parâmetro(s) de entrada inválido(s)', self::CORPO_RECUSA)
+        )]);
 
         $this->processarEnvios();
 
@@ -82,34 +43,17 @@ class SendTest extends TestCase
 
         $this->assertSituacao('recusado', $linha, 'recusa do BSC ficou marcada como enviada');
         $this->assertNull($linha['send_timestamp'], 'recusa ficou com carimbo de envio');
-
-        // o que a API respondeu fica na linha: sem isso, "Recusado" no painel
-        // não distingue payload inválido de BSC fora do ar
         $this->assertSame(400, (int) $linha['send_http_status']);
         $this->assertSame('Parâmetro(s) de entrada inválido(s)', $linha['send_detail']);
-
-        // e o corpo vai inteiro, não o resumo: o motivo real da recusa vem em
-        // `subErrors`, que não está documentado e não cabe numa frase
         $this->assertSame(self::CORPO_RECUSA, $linha['send_response']);
     }
 
-    /**
-     * E, voltando a pendente, a varredura seguinte alcança a linha — que é o
-     * que torna a correção da credencial suficiente, sem mexer no banco.
-     */
     function testDepoisDeVoltarAPendenteAProximaVarreduraEnvia()
     {
         $this->publicarEspaco();
-
-        $this->configurar(['client' => new class implements Client {
-            public function send(array $payload): Result
-            {
-                return new Result(Result::RETRY, 503, 'no healthy upstream');
-            }
-        }]);
+        $this->configurar(['client' => $this->clienteQueDevolve(new Result(Result::RETRY, 503, 'no healthy upstream'))]);
         $this->processarEnvios();
 
-        // credencial arrumada
         $this->configurar(['client' => null]);
         $this->processarEnvios();
 
@@ -140,10 +84,6 @@ class SendTest extends TestCase
         $this->assertNotNull($linha['send_timestamp'], 'enviado sem carimbo de tempo');
     }
 
-    /**
-     * O job só lê pendentes. Sem isso, cada varredura reenviaria tudo o que já
-     * saiu, e o cidadão receberia a mesma pesquisa a cada poucos segundos.
-     */
     function testSegundaVarreduraNaoReenvia()
     {
         $this->publicarEspaco();
@@ -156,16 +96,12 @@ class SendTest extends TestCase
         $this->assertSame($carimbo, $this->solicitacoes()[0]['send_timestamp']);
     }
 
-    /**
-     * Sem CPF não há o que enviar: o campo é obrigatório na API. O registro fica
-     * visível no painel para que o tamanho do caso seja medido, em vez de sumir.
-     */
     function testUsuarioSemCpfNaoEnvia()
     {
         $semCpf = $this->userDirector->createUser();
         $this->login($semCpf);
 
-        $this->publicar($this->spaceDirector->createSpace($semCpf->profile));
+        $this->publicar($this->spaceDirector()->createSpace($semCpf->profile));
         $this->processarEnvios();
 
         $linha = $this->solicitacoes()[0];
@@ -174,38 +110,75 @@ class SendTest extends TestCase
         $this->assertNull($linha['send_timestamp']);
     }
 
-    /**
-     * Os endereços vêm da requisição que publicou, e não do job: ele roda em
-     * linha de comando, onde o IP disponível é o loopback do servidor.
-     */
+    /** Os endereços vêm da requisição que publicou. */
     function testGuardaOsEnderecosDoGatilho()
     {
-        $this->publicarEspaco();
+        $anterior = $_SERVER['SERVER_ADDR'] ?? null;
+        $_SERVER['SERVER_ADDR'] = '10.0.0.5';
+
+        try {
+            $this->publicarEspaco();
+        } finally {
+            if ($anterior === null) {
+                unset($_SERVER['SERVER_ADDR']);
+            } else {
+                $_SERVER['SERVER_ADDR'] = $anterior;
+            }
+        }
 
         $linha = $this->solicitacoes()[0];
 
-        $this->assertArrayHasKey('ip_origem', $linha);
-        $this->assertArrayHasKey('ip_usuario', $linha);
+        $this->assertSame('10.0.0.5', $linha['ip_origem'], 'o IP do servidor não foi capturado no gatilho');
+
+        $this->processarEnvios();
+
+        $enviado = json_decode($this->solicitacoes()[0]['send_payload'], true);
+
+        $this->assertSame('10.0.0.5', $enviado['ipOrigem']);
+        $this->assertNotEmpty($enviado['ipUsuario'], 'ipUsuario é obrigatório no contrato');
     }
 
     /**
-     * Retentativa tem teto.
-     *
-     * O BSC devolve 500 para indisponibilidade e para regra de negócio, e o que
-     * separa os dois é o texto da mensagem. Se uma recusa permanente não for
-     * reconhecida, sem este limite a linha retentaria a cada tique do cron para
-     * sempre — consumindo a fila e enchendo o log sem chance de mudar.
+     * Publicar durante uma queda do BSC não anula o adiamento: o gatilho
+     * enfileira sem `replace`.
      */
+    function testPublicarDuranteQuedaNaoAnulaOAdiamento()
+    {
+        $this->publicarEspaco();
+        $this->configurar(['client' => $this->clienteQueDevolve(new Result(Result::RETRY, 503, 'no healthy upstream'))]);
+
+        // a varredura falha e se adia com falhas = 1
+        $this->processarEnvios();
+
+        // outra publicação durante a queda
+        $this->publicar($this->projectDirector->createProject($this->perfilAtual()));
+        App::i()->em->flush();
+
+        $jobs = $this->conn()->fetchAllAssociative(
+            'SELECT metadata, create_timestamp, next_execution_timestamp FROM job WHERE name = ?',
+            ['govbr-satisfaction-send']
+        );
+
+        $this->assertCount(1, $jobs, 'a publicação enfileirou uma segunda varredura');
+
+        $job = $jobs[0];
+        $metadata = json_decode((string) $job['metadata'], true);
+
+        $this->assertSame(1, $metadata['falhas'] ?? null, 'a publicação anulou a contagem de falhas da varredura');
+        $this->assertGreaterThan(
+            $job['create_timestamp'],
+            $job['next_execution_timestamp'],
+            'a publicação puxou a varredura adiada de volta para agora'
+        );
+    }
+
+    /** Retentativa tem teto. */
     function testDesisteDepoisDoLimiteDeTentativas()
     {
         $this->publicarEspaco();
-
-        $this->configurar(['client' => new class implements Client {
-            public function send(array $payload): Result
-            {
-                return new Result(Result::RETRY, 503, 'no healthy upstream');
-            }
-        }]);
+        $this->configurar(['client' => $this->clienteQueDevolve(
+            new Result(Result::RETRY, 500, 'Erro interno', '{"message":"Erro interno"}')
+        )]);
 
         for ($i = 0; $i < SatisfactionSender::MAX_ATTEMPTS; $i++) {
             $this->processarEnvios();
@@ -218,18 +191,101 @@ class SendTest extends TestCase
     }
 
     /**
-     * A pilha de exceção não vai para o banco.
+     * Transporte fora não consome tentativas.
      *
-     * A recusa do BSC vem com dezenas de quadros do Java por solicitação, e
-     * guardá-los custaria espaço sem ajudar ninguém a diagnosticar nada — o que
-     * importa é `subErrors` e `codigoErro`.
+     * @dataProvider falhasDeTransporte
      */
-    function testCorpoGuardadoNaoTrazAPilhaDeExcecao()
+    function testQuedaDoTransporteNaoConsomeTentativas(?int $status, string $detalhe)
     {
-        $corpo = json_decode(self::CORPO_RECUSA, true);
+        $this->publicarEspaco();
+        $this->configurar(['client' => $this->clienteQueDevolve(new Result(Result::RETRY, $status, $detalhe))]);
 
-        $this->assertArrayNotHasKey('stackTrace', $corpo);
-        $this->assertArrayHasKey('subErrors', $corpo, 'o motivo real precisa sobreviver à limpeza');
-        $this->assertArrayHasKey('codigoErro', $corpo);
+        for ($i = 0; $i < SatisfactionSender::MAX_ATTEMPTS + 2; $i++) {
+            $this->processarEnvios();
+        }
+
+        $linha = $this->solicitacoes()[0];
+
+        $this->assertSituacao('pendente', $linha, "queda do transporte ({$detalhe}) virou recusa");
+        $this->assertSame(0, (int) $linha['send_attempts'], 'falha de transporte consumiu tentativa');
+    }
+
+    public static function falhasDeTransporte(): array
+    {
+        return [
+            'token negado' => [null, 'não foi possível obter token do BSC'],
+            'rede antes do despacho' => [null, 'falha de rede antes do despacho: Could not resolve host'],
+            'gateway redirecionando' => [302, 'resposta inesperada HTTP 302'],
+            'proxy sem upstream' => [503, 'no healthy upstream'],
+            'gateway timeout' => [504, 'upstream request timeout'],
+        ];
+    }
+
+    /**
+     * O cliente lançando não pode deixar a linha "Disparada" sem disparo: vira
+     * falha da linha, com a mensagem, e esgota o teto como um 500.
+     */
+    function testClienteQueLancaNaoDeixaALinhaComoEnviada()
+    {
+        $this->publicarEspaco();
+        $this->configurar(['client' => $this->clienteQueLanca(new \RuntimeException('curl_init falhou'))]);
+
+        $this->processarEnvios();
+
+        $linha = $this->solicitacoes()[0];
+
+        $this->assertSituacao('pendente', $linha, 'a exceção deixou a linha marcada como enviada');
+        $this->assertNull($linha['send_timestamp']);
+        $this->assertSame(1, (int) $linha['send_attempts']);
+        $this->assertStringContainsString('curl_init falhou', $linha['send_detail']);
+
+        for ($i = 1; $i < SatisfactionSender::MAX_ATTEMPTS; $i++) {
+            $this->processarEnvios();
+        }
+
+        $this->assertSituacao('recusado', $this->solicitacoes()[0], 'a exceção deveria esgotar o teto de tentativas');
+    }
+
+    /**
+     * Um 500 de uma linha não segura as outras.
+     */
+    function testFalhaDeUmaLinhaNaoTravaAsSeguintes()
+    {
+        $this->publicarEspaco();
+        $this->publicar($this->projectDirector->createProject($this->cidadao->profile));
+
+        $espaco = $this->servico('espaco');
+
+        $this->configurar(['client' => $this->clienteQueDecide(fn(array $payload) => $payload['servico'] === $espaco
+            ? new Result(Result::RETRY, 500, 'Erro interno', '{"message":"Erro interno"}')
+            : new Result(Result::SENT, 200, null, '{"emailEnviado":true}')
+        )]);
+
+        $this->processarEnvios();
+
+        $linhaEspaco = $this->solicitacoes("servico = '{$espaco}'")[0];
+        $linhaProjeto = $this->solicitacoes("servico = '{$this->servico('projeto')}'")[0];
+
+        $this->assertSituacao('pendente', $linhaEspaco);
+        $this->assertSame(1, (int) $linhaEspaco['send_attempts']);
+
+        $this->assertSituacao('enviado', $linhaProjeto, 'o 500 de outra linha travou esta');
+    }
+
+    /**
+     * Já o transporte fora do ar para a varredura na primeira linha.
+     */
+    function testQuedaDoTransporteParaAVarredura()
+    {
+        $this->publicarEspaco();
+        $this->publicar($this->projectDirector->createProject($this->cidadao->profile));
+
+        $cliente = $this->clienteQueDevolve(new Result(Result::RETRY, 503, 'no healthy upstream'));
+
+        $this->configurar(['client' => $cliente]);
+        $this->processarEnvios();
+
+        $this->assertSame(1, $cliente->chamadas, 'a varredura seguiu depois de o transporte falhar');
+        $this->assertSame(2, $this->contar("send_status = 'pendente'"));
     }
 }

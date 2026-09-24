@@ -6,13 +6,7 @@ use GovBrSatisfaction\Entities\SatisfactionRequest;
 use MapasCulturais\Entities\User;
 
 /**
- * Monta o corpo de POST /api/avaliacao/completa a partir do registro local.
- *
- * Os dados pessoais são lidos do usuário na hora do envio, não de cópia na
- * tabela — ver GovBrSatisfaction\Entities\SatisfactionRequest.
- *
- * `/completa` não recebe `protocolo`, diferente dos outros endpoints: quem o
- * gera é o BSC.
+ * Monta o corpo de POST /api/avaliacao/completa.
  *
  * @package GovBrSatisfaction
  */
@@ -20,10 +14,27 @@ class Payload
 {
     const SISTEMA_SOLICITANTE = 'Mapa da Cultura';
 
-    /**
-     * O gov.br espera as datas neste formato, não em ISO.
-     */
+    /** Loopback quando não há requisição. */
+    const IP_DESCONHECIDO = '127.0.0.1';
+
+    /** O contrato pede "dd/mm/aaaa". */
     const DATE_FORMAT = 'd/m/Y';
+
+    /**
+     * Uma codificação para o fio e para a cópia gravada, byte a byte.
+     * Byte inválido em UTF-8 (nome colado de outro lugar) vira U+FFFD em vez
+     * de derrubar a codificação; o resto lança, e o Sender trata.
+     */
+    const JSON_FLAGS = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR;
+
+    /**
+     * @throws \JsonException
+     */
+    public static function encode(array $payload): string
+    {
+        return json_encode($payload, self::JSON_FLAGS);
+    }
 
     public static function build(SatisfactionRequest $request, string $cpf): array
     {
@@ -36,32 +47,24 @@ class Payload
             'canalPrestacao' => $request->canalPrestacao,
             'cpfCidadao' => $cpf,
 
-            // Opcional no contrato, e igual ao do cidadão: quem concluiu o
-            // serviço é a mesma pessoa que a avaliação consulta.
             'cpfConsulta' => $cpf,
 
             'dataEtapa' => $data,
             'dataSituacaoEtapa' => $data,
             'email' => (string) $user->email,
             'etapa' => $request->etapa,
-            'ipOrigem' => $request->ipOrigem ?: '127.0.0.1',
-            'ipUsuario' => $request->ipUsuario ?: '127.0.0.1',
+            'ipOrigem' => $request->ipOrigem ?: self::IP_DESCONHECIDO,
+            'ipUsuario' => $request->ipUsuario ?: self::IP_DESCONHECIDO,
             'nomeCidadao' => self::nome($user),
             'orgao' => (string) $request->orgao,
             'servico' => $request->servico,
             'sistemaSolicitante' => self::SISTEMA_SOLICITANTE,
             'situacaoEtapa' => $request->situacaoEtapa,
-            // O contrato aceita "login, cpf ou identificador". Vai o CPF: é o
-            // que identifica a pessoa do lado do gov.br, enquanto o e-mail e o
-            // id interno do Mapa não são reconhecidos lá.
             'usuario' => $cpf,
         ];
     }
 
-    /**
-     * Só os dígitos: o cadastro local grava o CPF com máscara, e o login
-     * gov.br grava sem.
-     */
+    /** CPF do cadastro, só dígitos. */
     public static function cpf(User $user, string $metadataField): ?string
     {
         $agent = $user->profile;
@@ -70,14 +73,9 @@ class Payload
             return null;
         }
 
-        // `documento` é a chave configurada na instalação; `cpf` é a que
-        // versões antigas do cadastro gravaram. MultipleLocalAuth consulta as
-        // duas pelo mesmo motivo.
+        // `cpf` é a chave antiga do cadastro.
         foreach ([$metadataField, 'cpf'] as $key) {
-            // Sem `??` de propósito: as entidades do Mapas resolvem metadados
-            // no __get mas não declaram __isset, e o operador de coalescência
-            // consulta isset() primeiro — devolveria nulo mesmo com o metadado
-            // gravado no banco.
+            // Sem `??`: os metadados não declaram __isset.
             $value = preg_replace('/\D/', '', (string) $agent->$key);
 
             if (strlen($value) === 11) {
@@ -90,8 +88,6 @@ class Payload
 
     private static function nome(User $user): string
     {
-        $agent = $user->profile;
-
-        return (string) ($agent ? $agent->name : $user->email);
+        return (string) $user->profile->name;
     }
 }

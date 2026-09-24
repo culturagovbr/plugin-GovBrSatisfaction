@@ -1,26 +1,13 @@
-/**
- * Consulta das solicitações de avaliação, na página do painel.
- *
- * Nenhuma cor é declarada aqui: as situações usam `mc-status`, do tema, e todo
- * o resto vem dos tokens da instalação. Os `var()` são escritos sem valor de
- * reserva de propósito — um token com nome errado precisa aparecer, e não cair
- * silenciosamente num cinza qualquer.
- */
+/** Painel de solicitações. */
 .govbr-satisfaction {
     width: 100%;
 
-    // O conteúdo do cartão é uma linha por padrão, e os filhos encolhem ao
-    // próprio conteúdo — foi o que deixava a barra e a tabela amontoadas à
-    // esquerda, com metade do cartão vazia. Aqui tudo é uma coisa embaixo da
-    // outra, ocupando a largura inteira. O Security faz o mesmo ajuste.
+    // empilha na largura inteira
     .mc-card__content {
         flex-direction: column;
         align-items: stretch;
     }
 
-    // Explicação do que "Disparado" quer dizer. Vem antes dos contadores porque
-    // é a chave de leitura da coluna Situação, e os contadores são a primeira
-    // coisa em que se clica.
     &__lead {
         max-width: 72ch;
         margin: 0 0 1.5rem;
@@ -28,8 +15,6 @@
         font-size: var(--mc-font-size-xs);
     }
 
-    // Contadores à esquerda, filtro à direita, na mesma faixa. Empilhados, o
-    // select ocupava a largura inteira e desequilibrava a tela.
     &__toolbar {
         display: flex;
         flex-wrap: wrap;
@@ -45,8 +30,7 @@
         gap: 0.5rem;
     }
 
-    // São botões, e não cartões decorativos: filtram a lista, então precisam
-    // parecer clicáveis.
+    // são botões: filtram a lista
     &__total {
         display: flex;
         flex-direction: column;
@@ -73,9 +57,7 @@
             border-color: var(--mc-primary-500);
         }
 
-        // O filtro selecionado precisa de peso próprio: com o mesmo tratamento
-        // do hover, quem passa o mouse não distingue o que está filtrado de
-        // onde o ponteiro está.
+        // peso próprio, para distinguir do hover
         &--active {
             border-color: var(--mc-primary-500);
             border-width: 2px;
@@ -92,7 +74,6 @@
         flex-wrap: wrap;
         gap: 1rem;
 
-        // sem isto o select herda 100% e estica sozinho até a outra margem
         .field {
             margin: 0;
 
@@ -107,9 +88,7 @@
         overflow-x: auto;
     }
 
-    // A lista cresce sem teto e é varrida de cima a baixo. Cada pixel de altura
-    // por linha vira rolagem, então tudo aqui é compacto: fonte menor, respiro
-    // curto e nada que engorde a linha.
+    // lista longa, varrida de cima a baixo: tudo compacto
     &__table {
         width: 100%;
         border-collapse: collapse;
@@ -138,14 +117,11 @@
             border-bottom: 0;
         }
 
-        // a etiqueta do tema centraliza sozinha; na tabela ela acompanha a coluna
         .mc-status {
             margin: 0;
             font-size: var(--mc-font-size-xxs);
         }
 
-        // ação em linha não precisa de caixa cheia: engrossaria a linha quase
-        // ao dobro
         .button {
             padding: 0.125rem 0.5rem;
             min-height: 0;
@@ -153,10 +129,7 @@
         }
     }
 
-    // Data quebrada em três linhas é ilegível; a tabela rola no eixo horizontal
-    // se faltar espaço, o que incomoda menos.
-    // a resposta da API fica sob a situação, secundária a ela — e numa linha
-    // só: a recusa do BSC vem com a pilha do Java, que esticaria a célula
+    // resumo da resposta sob a situação, numa linha só
     &__detalhe {
         display: block;
         margin-top: 0.25rem;
@@ -168,8 +141,7 @@
         white-space: nowrap;
     }
 
-    // payload e resposta são o mesmo tipo de conteúdo — JSON de API — e usam a
-    // mesma caixa, para a leitura não mudar no meio do modal
+    // payload e resposta no modal, mesma caixa
     &__bloco {
         margin-bottom: 1rem;
         padding: 0.75rem;
@@ -187,7 +159,6 @@
         }
     }
 
-    // encostado à direita do título do bloco, discreto até o hover
     &__copiar {
         margin-left: auto;
         padding: 0.125rem 0.5rem;
@@ -228,52 +199,6 @@
         word-break: break-word;
     }
 
-    &__http--aviso {
-        background: var(--mc-primary-500);
-    }
-
-    // a resposta completa, no modal
-    &__resposta {
-        margin-bottom: 1rem;
-        padding: 0.75rem;
-        // o modal alinha à direita; aqui é texto técnico, tem que ler da esquerda
-        text-align: left;
-        border-radius: var(--mc-border-radius-sm);
-        background: var(--mc-gray-300);
-
-        h4 {
-            margin: 0 0 0.25rem;
-            font-size: var(--mc-font-size-xs);
-            font-weight: var(--mc-font-semibold);
-        }
-
-        p {
-            margin: 0;
-            color: var(--mc-gray-700);
-            font-size: var(--mc-font-size-xxs);
-            line-height: 1.4;
-            word-break: break-word;
-        }
-    }
-
-    // o corpo cru, rolável: a pilha do Java tem dezenas de linhas e não pode
-    // esticar o modal
-    &__resposta-corpo {
-        max-height: 14rem;
-        text-align: left;
-        margin: 0.5rem 0 0;
-        padding: 0.5rem;
-        overflow: auto;
-        border-radius: var(--mc-border-radius-sm);
-        background: #fff;
-        color: var(--mc-gray-700);
-        font-family: monospace;
-        font-size: var(--mc-font-size-xxs);
-        line-height: 1.4;
-        white-space: pre-wrap;
-        word-break: break-word;
-    }
-
     &__http {
         display: inline-block;
         margin-right: 0.375rem;
@@ -283,6 +208,10 @@
         color: #fff;
         font-size: var(--mc-font-size-xxs);
         font-weight: var(--mc-font-semibold);
+    }
+
+    &__http--aviso {
+        background: var(--mc-primary-500);
     }
 
     &__date {
@@ -300,9 +229,16 @@
         font-style: italic;
     }
 
-    // Mesmo desenho do estado vazio do Security: ícone apagado, mensagem e
-    // dica, centralizados. Lista vazia aqui é a situação normal de quem acabou
-    // de ligar o plugin, e não um erro.
+    // só para leitor de tela
+    &__sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+    }
+
     &__empty {
         display: flex;
         flex-direction: column;
@@ -338,59 +274,5 @@
         align-items: center;
         gap: 0.5rem;
         margin-top: 1.5rem;
-    }
-
-    &__note {
-        margin-bottom: 1.25rem;
-        font-size: var(--mc-font-size-xxs);
-        color: var(--mc-gray-700);
-    }
-
-    // Lista de definição, e não tabela: os estilos de `table` do tema
-    // desenhavam uma divisória vertical no meio do conteúdo. Aqui o grid é
-    // próprio, e nada é herdado.
-    //
-    // Os nomes de campo ficam como na API, para bater com a documentação do BSC.
-    &__payload {
-        margin: 0;
-        text-align: left;
-    }
-
-    &__payload-row {
-        display: grid;
-        grid-template-columns: 13rem 1fr;
-        gap: 0 1.5rem;
-        padding: 0.5rem 0;
-        border-bottom: var(--mc-border-hairline) var(--mc-gray-300);
-
-        &:last-child {
-            border-bottom: 0;
-        }
-
-        dt {
-            margin: 0;
-            font-family: monospace;
-            font-size: var(--mc-font-size-xxs);
-            color: var(--mc-gray-500);
-        }
-
-        dd {
-            margin: 0;
-            font-size: var(--mc-font-size-xs);
-            word-break: break-word;
-        }
-
-        // Os três campos que não vêm da tabela, e sim do cadastro atual.
-        &--masked dd {
-            color: var(--mc-gray-700);
-            font-style: italic;
-        }
-    }
-
-    @media (max-width: 600px) {
-        &__payload-row {
-            grid-template-columns: 1fr;
-            gap: 0.125rem;
-        }
     }
 }

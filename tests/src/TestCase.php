@@ -9,13 +9,7 @@ use MapasCulturais\Entities\User;
 use Tests\Traits\AgentDirector;
 use Tests\Traits\UserDirector;
 
-/**
- * Base dos testes do plugin
- *
- * Acrescenta à base do core o que todo teste daqui precisa: a tabela limpa e
- * um subsite de verdade apontado pela configuração. Sem ele o gatilho não
- * atenderia nada, e as regras de portal não seriam exercitáveis.
- */
+/** Base dos testes do plugin. */
 abstract class TestCase extends \Tests\Abstract\TestCase
 {
     use AgentDirector;
@@ -30,27 +24,16 @@ abstract class TestCase extends \Tests\Abstract\TestCase
     /** Usuário com CPF, dono das entidades publicadas nos testes. */
     protected User $cidadao;
 
-    /** Configuração do plugin como as variáveis de ambiente a definiram. */
     private static ?array $configOriginal = null;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        // O plugin é singleton da aplicação e sua configuração sobrevive de um
-        // teste para o outro. Sem restaurar, um teste que esvazia uma variável
-        // deixa os seguintes rodando com ela vazia.
+        // Restaura a configuração e recria os subsites.
         $this->restaurarConfiguracao();
-
-        // Desliga o gatilho antes de montar o cenário. A configuração do plugin
-        // sobrevive entre testes — ele é singleton da aplicação —, mas os
-        // subsites não: o rollback do teste anterior os desfaz. Sem isto, o
-        // usuário criado para ser dono do subsite dispararia uma solicitação
-        // apontando para um portal que não existe mais.
         $this->configurar(['subsiteId' => 0]);
 
-        // URL única por teste: a base do core não desfaz tudo entre um teste e
-        // outro, e repetir o endereço faria o segundo subsite não ser gravado.
         $this->subsite = $this->criarSubsite('Portal atendido');
         $this->outroSubsite = $this->criarSubsite('Outro portal');
 
@@ -59,13 +42,8 @@ abstract class TestCase extends \Tests\Abstract\TestCase
 
         $this->cidadao = $this->criarCidadao();
 
-        // Criar e publicar entidade é ato de quem está logado: sem sessão, o
-        // core entra no caminho de pedido de troca de titularidade e falha antes
-        // de o gatilho ser alcançado.
         $this->login($this->cidadao);
 
-        // Por último: criar o cidadão dispara o serviço "Cadastrar-se", e cada
-        // teste precisa começar contando do zero.
         $this->conn()->executeStatement('DELETE FROM govbr_satisfaction_request');
     }
 
@@ -91,14 +69,7 @@ abstract class TestCase extends \Tests\Abstract\TestCase
         return App::i()->plugins['GovBrSatisfaction'];
     }
 
-    /**
-     * Sobrescreve a configuração do plugin em memória.
-     *
-     * A configuração nasce das variáveis de ambiente, que a suíte não pode
-     * mudar entre um teste e outro. Instanciar um plugin novo não serve: o
-     * construtor registra outro conjunto de ganchos, e os dois passariam a
-     * responder ao mesmo gatilho.
-     */
+    /** Sobrescreve a configuração do plugin em memória. */
     protected function configurar(array $valores): void
     {
         $plugin = $this->plugin();
@@ -109,9 +80,6 @@ abstract class TestCase extends \Tests\Abstract\TestCase
         $prop->setValue($plugin, array_replace_recursive($prop->getValue($plugin), $valores));
     }
 
-    /**
-     * Passa a criar entidades dentro deste portal.
-     */
     protected function noSubsite(Subsite $subsite): void
     {
         App::i()->setCurrentSubsiteId($subsite->id);
@@ -127,9 +95,6 @@ abstract class TestCase extends \Tests\Abstract\TestCase
         $subsite = new Subsite;
         $subsite->name = "{$nome} {$sufixo}";
         $subsite->url = "{$sufixo}.teste";
-        // Precisa ser um namespace com tema de verdade: ao processar jobs o core
-        // carrega o tema do subsite, e um nome inventado quebraria com
-        // "Class ... not found".
         $subsite->namespace = 'Subsite';
         $subsite->owner = $this->agentDirector->createAgent($this->userDirector->createUser());
         $subsite->save(true);
@@ -137,9 +102,6 @@ abstract class TestCase extends \Tests\Abstract\TestCase
 
         $app->enableAccessControl();
 
-        // Sem o subsite na tabela, o gatilho gravaria uma solicitação apontando
-        // para um portal inexistente e a falha apareceria como violação de
-        // chave estrangeira, longe da causa.
         $this->assertSame(
             1,
             (int) $this->conn()->fetchOne('SELECT count(*) FROM subsite WHERE id = ?', [$subsite->id]),
@@ -149,12 +111,7 @@ abstract class TestCase extends \Tests\Abstract\TestCase
         return $subsite;
     }
 
-    /**
-     * Usuário com CPF no cadastro, que é o caso em que a solicitação é enviada.
-     *
-     * Não confirma o e-mail: quem quiser o serviço "Cadastrar-se" registrado
-     * chama confirmarEmail() depois, como faz o fluxo de verdade.
-     */
+    /** Usuário com CPF, sem e-mail confirmado. */
     protected function criarCidadao(): User
     {
         $app = App::i();
@@ -170,21 +127,12 @@ abstract class TestCase extends \Tests\Abstract\TestCase
         return $user;
     }
 
-    /**
-     * Confirma o e-mail da conta, que é o gatilho de "Cadastrar-se".
-     *
-     * Reproduz o que o MultipleLocalAuth faz quando a pessoa clica no link
-     * recebido: grava o metadado que marca a conta como ativa.
-     */
-    protected function confirmarEmail(User $user): void
+    /** Grava o metadado de conta ativa. */
+    protected function confirmarEmail(User $user): \MapasCulturais\Entities\UserMeta
     {
         $app = App::i();
         $app->disableAccessControl();
 
-        // A linha de metadado é montada à mão em vez de por setMetadata(): o
-        // registro daquela chave pertence ao MultipleLocalAuth, que não está
-        // disponível na stack de testes do core. O que importa aqui é o gancho
-        // de gravação, que é o mesmo nos dois caminhos.
         $chave = $this->plugin()->config['accountActiveMetadata'];
 
         $meta = new \MapasCulturais\Entities\UserMeta;
@@ -195,29 +143,88 @@ abstract class TestCase extends \Tests\Abstract\TestCase
 
         $app->em->flush();
         $app->enableAccessControl();
+
+        return $meta;
     }
 
-    /**
-     * Agente do tipo pedido.
-     *
-     * O director do core ignora o tipo passado — todo agente sai como coletivo —,
-     * então o valor é atribuído aqui, que é o que distingue "Cadastrar coletivo"
-     * do cadastro da própria pessoa.
-     */
+    /** Agente do tipo pedido. */
     protected function criarAgente(int $tipo): \MapasCulturais\Entities\Agent
     {
         $app = App::i();
 
-        // O tipo vai na criação, não depois de gravar: é o que o formulário faz,
-        // e é o que permite ao gatilho distinguir individual de coletivo já no
-        // insert. Atribuir depois gravaria um agente sem tipo definido, que não
-        // corresponde a nenhum caminho da interface.
         $app->disableAccessControl();
         $agente = $this->agentDirector->createAgent($this->cidadao, $tipo);
         $app->em->flush();
         $app->enableAccessControl();
 
         return $agente;
+    }
+
+    /** O cenário mais comum da suíte. */
+    protected function publicarEspaco(): void
+    {
+        $this->publicar($this->spaceDirector()->createSpace($this->cidadao->profile));
+    }
+
+    protected function spaceDirector(): \Tests\Directors\SpaceDirector
+    {
+        return new \Tests\Directors\SpaceDirector;
+    }
+
+    /** Agente do cidadão relido do banco. */
+    protected function perfilAtual(): \MapasCulturais\Entities\Agent
+    {
+        return App::i()->repo('Agent')->find($this->cidadao->profile->id);
+    }
+
+    /** UPDATE direto na linha, com o EntityManager limpo. */
+    protected function alterarLinha(int $id, array $colunas): void
+    {
+        $sets = implode(', ', array_map(fn($c) => "{$c} = ?", array_keys($colunas)));
+
+        $this->conn()->executeStatement(
+            "UPDATE govbr_satisfaction_request SET {$sets} WHERE id = ?",
+            [...array_values($colunas), $id]
+        );
+
+        App::i()->em->clear();
+    }
+
+    /** Transporte que devolve sempre o mesmo desfecho e conta as chamadas. */
+    protected function clienteQueDevolve(\GovBrSatisfaction\Bsc\Result $resultado): \GovBrSatisfaction\Bsc\Client
+    {
+        return new class($resultado) implements \GovBrSatisfaction\Bsc\Client {
+            public int $chamadas = 0;
+
+            public function __construct(private \GovBrSatisfaction\Bsc\Result $resultado) {}
+
+            public function send(array $payload): \GovBrSatisfaction\Bsc\Result
+            {
+                $this->chamadas++;
+
+                return $this->resultado;
+            }
+        };
+    }
+
+    /** Transporte que decide pelo payload: `$decide(array $payload): Result`. */
+    protected function clienteQueDecide(callable $decide): \GovBrSatisfaction\Bsc\Client
+    {
+        return new class($decide) implements \GovBrSatisfaction\Bsc\Client {
+            public function __construct(private $decide) {}
+
+            public function send(array $payload): \GovBrSatisfaction\Bsc\Result
+            {
+                return ($this->decide)($payload);
+            }
+        };
+    }
+
+    protected function clienteQueLanca(\Throwable $e): \GovBrSatisfaction\Bsc\Client
+    {
+        return $this->clienteQueDecide(function () use ($e) {
+            throw $e;
+        });
     }
 
     protected function solicitacoes(string $where = '1=1'): array
@@ -234,13 +241,7 @@ abstract class TestCase extends \Tests\Abstract\TestCase
         );
     }
 
-    /**
-     * Cria já publicada, sem passar por rascunho.
-     *
-     * É o caminho "criar e publicar" da interface, e não um atalho de teste: as
-     * entidades do core nascem com STATUS_ENABLED por padrão, então este é o
-     * estado de quem preenche o formulário e publica de uma vez.
-     */
+    /** Cria já publicada. */
     protected function criarPublicado($entidade): void
     {
         $app = App::i();
@@ -256,15 +257,11 @@ abstract class TestCase extends \Tests\Abstract\TestCase
         $app->enableAccessControl();
     }
 
-    /**
-     * Publica uma entidade já criada, que é o gatilho de cinco dos seis serviços.
-     */
+    /** Rascunho e depois publicada, como o dono. */
     protected function publicar($entidade): void
     {
         $app = App::i();
 
-        // Publicar é ato do dono. Sem ninguém logado, o core entra no caminho de
-        // pedido de troca de titularidade e falha antes de chegar ao gatilho.
         $this->login($entidade->ownerUser);
 
         $app->disableAccessControl();
@@ -279,26 +276,16 @@ abstract class TestCase extends \Tests\Abstract\TestCase
         $app->enableAccessControl();
     }
 
-    /**
-     * Processa a fila de envio.
-     *
-     * O job é enfileirado dentro de um subsite, e ao executá-lo o core
-     * reinicializa o tema desse portal — que não constrói no contexto da suíte.
-     * O envio não depende desse contexto: cada solicitação guarda o portal a que
-     * pertence e o job revalida por ali. Então o vínculo é desfeito antes de
-     * processar, e o que se exercita continua sendo o mesmo caminho.
-     */
+    /** Executa os jobs existentes, um por vez, sem subsite. */
     protected function processarEnvios(): void
     {
         $app = App::i();
 
-        // o job pode estar só na memória do EntityManager neste ponto
         $app->em->flush();
 
         $this->conn()->executeStatement('UPDATE job SET subsite_id = NULL');
 
-        // sem isto o EntityManager devolveria o job que já tem em memória, com
-        // o vínculo antigo, e o UPDATE acima não teria efeito nenhum
+        // senão o EntityManager devolveria o job em memória, com o vínculo antigo
         $app->em->clear();
 
         $this->processJobs();

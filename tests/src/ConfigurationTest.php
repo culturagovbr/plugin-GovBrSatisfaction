@@ -4,14 +4,7 @@ namespace Tests\GovBrSatisfaction;
 
 use Tests\Traits\SpaceDirector;
 
-/**
- * Configuração incompleta
- *
- * O plugin só opera inteiro: faltando variável obrigatória nada é registrado,
- * em vez de acumular fila esperando alguém arrumar o `.env`.
- *
- * Vale só no modo real — em desenvolvimento o fluxo roda com o que houver.
- */
+/** Configuração incompleta não registra (modo real). */
 class ConfigurationTest extends TestCase
 {
     use SpaceDirector;
@@ -20,7 +13,7 @@ class ConfigurationTest extends TestCase
     {
         $this->configurar($configuracao + ['devMode' => false]);
 
-        $this->publicar($this->spaceDirector->createSpace($this->cidadao->profile));
+        $this->publicarEspaco();
     }
 
     function testSemOrgaoNaoRegistra()
@@ -44,6 +37,28 @@ class ConfigurationTest extends TestCase
         $this->assertSame(0, $this->contar());
     }
 
+    /**
+     * Credenciais RCV_BSC_* em branco.
+     *
+     * @dataProvider credenciaisDoGateway
+     */
+    function testSemCredencialDoGatewayNaoRegistra(string $chave, string $variavel)
+    {
+        $this->publicarNoModoReal([$chave => '']);
+
+        $this->assertSame(0, $this->contar());
+        $this->assertContains($variavel, $this->plugin()->missingConfig());
+    }
+
+    public static function credenciaisDoGateway(): array
+    {
+        return [
+            'url do token' => ['bscAuthUrl', 'RCV_BSC_AUTH_TOKEN'],
+            'client id' => ['bscClientId', 'RCV_BSC_CLIENT_ID'],
+            'client secret' => ['bscClientSecret', 'RCV_BSC_CLIENT_SECRET'],
+        ];
+    }
+
     function testComTudoConfiguradoRegistra()
     {
         $this->publicarNoModoReal([]);
@@ -51,15 +66,11 @@ class ConfigurationTest extends TestCase
         $this->assertSame(1, $this->contar());
     }
 
-    /**
-     * Em desenvolvimento a configuração pode estar vazia: nada sai da máquina,
-     * e exigir os valores impediria de exercitar o fluxo.
-     */
     function testEmDesenvolvimentoAConfiguracaoVaziaNaoImpede()
     {
         $this->configurar(['orgao' => '', 'devMode' => true]);
 
-        $this->publicar($this->spaceDirector->createSpace($this->cidadao->profile));
+        $this->publicarEspaco();
 
         $this->assertSame(1, $this->contar());
     }

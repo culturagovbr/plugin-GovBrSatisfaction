@@ -5,11 +5,17 @@ app.component('govbr-satisfaction-requests', {
         // os textos estão localizados no arquivo texts.php deste componente
         const text = Utils.getTexts('govbr-satisfaction-requests');
         const messages = useMessages();
-        return { text, messages };
+
+        // substitui cada `%s` do texto pelo próximo argumento
+        const fmt = (chave, ...valores) => valores.reduce((s, v) => s.replace('%s', v), text(chave));
+
+        return { text, fmt, messages };
     },
 
     data() {
         return {
+            situacoes: ['pendente', 'enviado', 'recusado', 'sem-cpf'],
+
             registros: [],
             total: 0,
             pagina: 1,
@@ -22,47 +28,26 @@ app.component('govbr-satisfaction-requests', {
 
             filtros: { situacao: '', servico: '' },
 
-            // conteúdo da solicitação aberta no momento
+            // solicitação aberta no modal
             payload: null,
             payloadMotivo: null,
-            // se o conteúdo exibido é cópia do envio ou reconstrução do cadastro
             payloadReconstruido: false,
-            // qual bloco acabou de ser copiado, para a confirmação na tela
+            resposta: null,
             copiado: null,
             carregandoPayload: false,
 
-            // Cada pedido recebe um número, e só a resposta do mais recente é
-            // aceita: sem isso, uma consulta lenta sem filtro que voltasse
-            // depois de outra filtrada sobrescreveria a lista já filtrada.
+            // id da solicitação sendo devolvida à fila
+            devolvendo: null,
+
+            // só a resposta do pedido mais recente é aceita
             geracao: 0,
             geracaoPayload: 0,
         };
     },
 
     computed: {
-        situacoes() {
-            return ['pendente', 'enviado', 'recusado', 'sem-cpf'];
-        },
-
-        // Os nomes de campo são os da API de propósito: a tela serve para
-        // conferir o que o BSC recebeu, e traduzi-los tornaria a conferência
-        // contra a documentação deles mais difícil, não mais fácil.
         filtroAtivo() {
             return Boolean(this.filtros.situacao || this.filtros.servico);
-        },
-
-        payloadCampos() {
-            if (!this.payload) {
-                return [];
-            }
-
-            const mascarados = ['cpfCidadao', 'email', 'nomeCidadao'];
-
-            return Object.entries(this.payload).map(([chave, valor]) => ({
-                chave,
-                valor: typeof valor === 'boolean' ? String(valor) : valor,
-                mascarado: mascarados.includes(chave),
-            }));
         },
     },
 
@@ -80,14 +65,10 @@ app.component('govbr-satisfaction-requests', {
                     this.status = await response.json();
                 }
             } catch (error) {
-                // o aviso de configuração é acessório: a lista abaixo continua
-                // utilizável sem ele, então uma falha aqui não vira mensagem
             }
         },
 
-        // `acumular` anexa a página nova ao que já está na tela, em vez de
-        // trocar: a lista é varrida de cima a baixo à procura de um registro, e
-        // trocar o conteúdo faria perder o lugar a cada avanço.
+        // anexa a página
         async carregar(acumular = false) {
             this.carregando = true;
             const geracao = ++this.geracao;
@@ -118,8 +99,7 @@ app.component('govbr-satisfaction-requests', {
                 this.totais = data.totais;
             } catch (error) {
                 if (geracao === this.geracao) {
-                    // devolve a página avançada pelo clique: sem isto, o próximo
-                    // "Carregar Mais" depois de um erro pularia um trecho da lista
+                    // devolve a página avançada pelo clique
                     if (acumular) {
                         this.pagina -= 1;
                     }
@@ -139,10 +119,9 @@ app.component('govbr-satisfaction-requests', {
             this.payload = null;
             this.payloadMotivo = null;
             this.payloadReconstruido = false;
+            this.resposta = null;
             this.carregandoPayload = true;
 
-            // mesma guarda do carregar(): abrir dois conteúdos em sequência
-            // rápida não pode deixar a resposta antiga sobrescrever a nova
             const geracao = ++this.geracaoPayload;
 
             try {
@@ -161,6 +140,7 @@ app.component('govbr-satisfaction-requests', {
                 this.payload = data.payload;
                 this.payloadMotivo = data.motivo;
                 this.payloadReconstruido = !!data.reconstruido;
+                this.resposta = data.resposta;
             } catch (error) {
                 if (geracao === this.geracaoPayload) {
                     this.payloadMotivo = this.text('payloadErro');
@@ -169,6 +149,44 @@ app.component('govbr-satisfaction-requests', {
                 if (geracao === this.geracaoPayload) {
                     this.carregandoPayload = false;
                 }
+            }
+        },
+
+        podeDevolver(registro) {
+            return ['recusado', 'sem-cpf'].includes(registro.situacao);
+        },
+
+        // atualiza a linha e os totais no lugar, sem recarregar a lista acumulada
+        async devolverAFila(registro, modal) {
+            this.devolvendo = registro.id;
+
+            try {
+                const response = await fetch(Utils.createUrl('govbr-satisfaction-requests', 'requeue'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: registro.id }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    this.messages.error(data.error || this.text('devolverErro'));
+                    return;
+                }
+
+                this.totais[registro.situacao] = Math.max(0, (this.totais[registro.situacao] || 0) - 1);
+                this.totais[data.situacao] = (this.totais[data.situacao] || 0) + 1;
+
+                registro.situacao = data.situacao;
+                registro.tentativas = data.tentativas;
+                registro.disparada = data.disparada;
+
+                modal.close();
+                this.messages.success(this.text('devolvido'));
+            } catch (error) {
+                this.messages.error(this.text('devolverErro'));
+            } finally {
+                this.devolvendo = null;
             }
         },
 
@@ -194,27 +212,17 @@ app.component('govbr-satisfaction-requests', {
             this.carregar(true);
         },
 
-        // A tabela mostra só o começo do motivo: a recusa do BSC vem com a
-        // pilha inteira do Java, e despejar isso na célula empurra a linha
-        // para cinco alturas. O texto completo fica no modal, e o title
-        // atende quem passar o mouse.
+        // primeira frase do motivo; o texto completo fica no modal e no title
         resumo(detalhe) {
             if (!detalhe) {
                 return '';
             }
 
-            // corta na primeira frase, que é onde mora o que interessa
             const frase = detalhe.split(/[.;]\s/)[0];
 
             return frase.length > 70 ? frase.slice(0, 70) + '…' : frase;
         },
 
-        // Copiar é o caminho normal daqui: o conteúdo vai para um chamado, um
-        // e-mail ao BSC ou o Postman, e selecionar JSON num bloco rolável é
-        // trabalhoso.
-        //
-        // A área de transferência moderna exige contexto seguro (HTTPS ou
-        // localhost); o textarea temporário cobre instalações em HTTP.
         async copiar(texto, chave) {
             try {
                 if (navigator.clipboard && window.isSecureContext) {
@@ -241,16 +249,10 @@ app.component('govbr-satisfaction-requests', {
             }
         },
 
-        // O payload no mesmo formato da resposta: os dois são JSON de API, e
-        // alternar entre lista de campos e bloco de código obrigaria a mudar de
-        // leitura no meio do modal.
         formatarJson(valor) {
             return JSON.stringify(valor, null, 2);
         },
 
-        // O corpo já chega limpo do HttpClient. O filtro aqui é para as linhas
-        // gravadas antes dessa limpeza existir, que ainda carregam a pilha de
-        // exceção do Java — sem ele, o histórico continuaria ilegível.
         formatarResposta(corpo) {
             const ruido = ['stackTrace', 'suppressed', 'cause', 'localizedMessage', 'instance', 'type'];
 
@@ -268,16 +270,10 @@ app.component('govbr-satisfaction-requests', {
             }
         },
 
-        // as situações compartilham os tons do mc-status: verde para o que
-        // seguiu, amarelo para o que aguarda, vermelho para o que não sairá
         tom(situacao) {
-            if (situacao === 'enviado') return 'success';
-            if (situacao === 'recusado') return 'danger';
-            if (situacao === 'pendente') return 'warning';
-            return 'danger';
+            return { enviado: 'success', pendente: 'warning' }[situacao] ?? 'danger';
         },
 
-        // mesma formatação do Security: McDate respeita o idioma configurado
         quando(timestamp) {
             if (!timestamp) {
                 return '—';

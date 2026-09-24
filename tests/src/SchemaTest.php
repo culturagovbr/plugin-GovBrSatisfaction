@@ -2,13 +2,7 @@
 
 namespace Tests\GovBrSatisfaction;
 
-/**
- * A tabela do plugin e o mapeamento da entidade
- *
- * O entrypoint da suíte executa os updates de banco a cada inicialização, então
- * a tabela nasce sozinha quando o plugin está ativo. Sem estes testes, um erro
- * no arquivo de updates só apareceria quando alguém publicasse algo.
- */
+/** A tabela e o mapeamento da entidade. */
 class SchemaTest extends TestCase
 {
     const TABELA = 'govbr_satisfaction_request';
@@ -41,11 +35,10 @@ class SchemaTest extends TestCase
     }
 
     /**
-     * A tabela não guarda dado pessoal: CPF, nome e e-mail são lidos do cadastro
-     * no momento do envio. Uma coluna dessas aparecendo aqui significa que
-     * alguém passou a duplicar dado pessoal sem querer.
+     * A cópia do envio em `send_payload` é assumida; coluna `cpf` ou `email`
+     * seria duplicação nova.
      */
-    function testNaoGuardaDadoPessoal()
+    function testNaoTemColunaDeDadoPessoal()
     {
         $colunas = $this->colunas();
 
@@ -54,13 +47,9 @@ class SchemaTest extends TestCase
         }
     }
 
-    /**
-     * A regra de uma avaliação por serviço é garantida pelo banco, e não pelo
-     * código: sem o índice, duas publicações simultâneas criariam duas linhas.
-     */
     function testIndiceUnicoPorUsuarioEServico()
     {
-        // a chave primária também é um índice único, e não é a que interessa aqui
+        // a chave primária também é única; não é a que interessa
         $definicao = $this->conn()->fetchOne(
             "SELECT indexdef FROM pg_indexes
               WHERE tablename = ? AND indexdef ILIKE '%UNIQUE%' AND indexname NOT LIKE '%\_pkey'",
