@@ -176,7 +176,7 @@ class HttpClient implements Client
             '[GovBrSatisfaction] envio ao BSC: %s, HTTP %s%s',
             $result->outcome->value,
             $result->status ?? '-',
-            $result->detail ? " — {$result->detail}" : ''
+            $result->detail ? " — " . Mask::forLogText($result->detail) : ''
         );
 
         if ($result->outcome === Outcome::Sent) {
@@ -254,7 +254,7 @@ class HttpClient implements Client
             App::i()->log->warning(sprintf(
                 '[GovBrSatisfaction] o endpoint de token respondeu HTTP %d sem accessToken: %s',
                 $status,
-                mb_substr(trim($result), 0, self::REASON_MAX)
+                Mask::forLogText(mb_substr(trim($result), 0, self::REASON_MAX))
             ));
         }
 

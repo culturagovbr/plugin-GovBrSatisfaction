@@ -42,6 +42,29 @@ class MaskTest extends TestCase
         $this->assertStringNotContainsString('maria', json_encode($mascarado));
     }
 
+    /**
+     * Texto de log não carrega CPF nem e-mail.
+     *
+     * @dataProvider textosDeLog
+     */
+    function testTextoDeLogNaoCarregaCpfNemEmail(string $texto, string $esperado)
+    {
+        $this->assertSame($esperado, Mask::forLogText($texto));
+    }
+
+    public static function textosDeLog(): array
+    {
+        return [
+            'cpf só dígitos' => ['cpfCidadao 77689062768 inválido', 'cpfCidadao *** inválido'],
+            'cpf formatado' => ['CPF 776.890.627-68 não encontrado', 'CPF *** não encontrado'],
+            'e-mail' => ['email maria.silva@example.com inválido', 'email *** inválido'],
+            'dentro de json' => ['{"detail":"cpf 77689062768","email":"a@b.com"}', '{"detail":"cpf ***","email":"***"}'],
+            'protocolo com cpf' => ['protocolo 77689062768ABC', 'protocolo ***ABC'],
+            'sem dado pessoal' => ['no healthy upstream', 'no healthy upstream'],
+            'número curto fica' => ['HTTP 500 codigoErro 1790278898', 'HTTP 500 codigoErro 1790278898'],
+        ];
+    }
+
     function testCpfForaDoFormatoSaiTodoCoberto()
     {
         $this->assertSame('***', Mask::cpf('123'));

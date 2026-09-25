@@ -2,6 +2,7 @@
 
 namespace GovBrSatisfaction\Jobs;
 
+use GovBrSatisfaction\Bsc\Mask;
 use GovBrSatisfaction\Entities\SatisfactionRequest;
 use GovBrSatisfaction\Plugin;
 use GovBrSatisfaction\Services\SendOutcome;
@@ -70,7 +71,7 @@ class SendSatisfactionRequestJob extends JobType
                     $app->log->error(sprintf(
                         '[GovBrSatisfaction] falha ao processar a solicitação %d: %s',
                         $request->id,
-                        $e->getMessage()
+                        Mask::forLogText($e->getMessage())
                     ));
 
                     continue;

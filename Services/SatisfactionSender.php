@@ -2,6 +2,7 @@
 
 namespace GovBrSatisfaction\Services;
 
+use GovBrSatisfaction\Bsc\Mask;
 use GovBrSatisfaction\Bsc\Client;
 use GovBrSatisfaction\Bsc\Outcome;
 use GovBrSatisfaction\Bsc\Result;
@@ -71,7 +72,7 @@ class SatisfactionSender
             $app->log->error(sprintf(
                 '[GovBrSatisfaction] corpo da solicitação %d não codifica: %s',
                 $request->id,
-                $e->getMessage()
+                Mask::forLogText($e->getMessage())
             ));
 
             $request->sendStatus = SatisfactionRequest::STATUS_REJECTED;
@@ -97,7 +98,7 @@ class SatisfactionSender
             $app->log->error(sprintf(
                 '[GovBrSatisfaction] o cliente lançou ao enviar a solicitação %d: %s',
                 $request->id,
-                $e->getMessage()
+                Mask::forLogText($e->getMessage())
             ));
 
             $threw = true;
@@ -158,7 +159,7 @@ class SatisfactionSender
             $by->id,
             $request->sendStatus,
             $request->sendHttpStatus ?? '-',
-            $request->sendDetail ?? '-'
+            Mask::forLogText($request->sendDetail ?? '-')
         ));
 
         $request->sendStatus = SatisfactionRequest::STATUS_PENDING;

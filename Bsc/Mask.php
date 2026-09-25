@@ -44,6 +44,16 @@ class Mask
         return $payload;
     }
 
+    /** Mascara CPF (com ou sem formato) e e-mail em texto livre. */
+    public static function forLogText(string $text): string
+    {
+        return preg_replace(
+            ['/\d{3}\.\d{3}\.\d{3}-\d{2}/', '/\d{11}/', '/[^\s@"\'<>]+@[^\s@"\'<>]+\.[a-z]{2,}/i'],
+            '***',
+            $text
+        );
+    }
+
     public static function cpf(string $cpf): string
     {
         if (strlen($cpf) !== 11) {

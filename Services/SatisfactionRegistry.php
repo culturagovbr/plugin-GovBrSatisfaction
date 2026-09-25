@@ -2,6 +2,7 @@
 
 namespace GovBrSatisfaction\Services;
 
+use GovBrSatisfaction\Bsc\Mask;
 use GovBrSatisfaction\Entities\SatisfactionRequest;
 use GovBrSatisfaction\Jobs\SendSatisfactionRequestJob;
 use GovBrSatisfaction\Plugin;
@@ -78,7 +79,7 @@ class SatisfactionRegistry
                 '[GovBrSatisfaction] falha ao registrar o serviço %s do usuário %d: %s',
                 $service->value,
                 $user->id,
-                $e->getMessage()
+                Mask::forLogText($e->getMessage())
             ));
         }
     }
