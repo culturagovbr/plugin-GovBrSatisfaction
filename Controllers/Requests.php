@@ -5,6 +5,7 @@ namespace GovBrSatisfaction\Controllers;
 use GovBrSatisfaction\Bsc\Mask;
 use GovBrSatisfaction\Bsc\Payload;
 use GovBrSatisfaction\Entities\SatisfactionAttempt;
+use GovBrSatisfaction\Entities\SatisfactionDispatch;
 use GovBrSatisfaction\Entities\SatisfactionRequest;
 use GovBrSatisfaction\Services\DispatchLog;
 use MapasCulturais\App;
@@ -47,6 +48,12 @@ class Requests extends \MapasCulturais\Controller
             }
         }
 
+        $search = $this->data['busca'] ?? '';
+
+        if (is_string($search) && trim($search) !== '') {
+            $this->applySearch($qb, trim($search));
+        }
+
         $total = (int) (clone $qb)->select('COUNT(r.id)')->getQuery()->getSingleScalarResult();
 
         $records = (clone $qb)
@@ -81,6 +88,26 @@ class Requests extends \MapasCulturais\Controller
             'paginas' => (int) ceil($total / self::PER_PAGE),
             'totais' => $totals,
         ]);
+    }
+
+    /** Busca por uuid do envio, id do usuário ou nome do agente. */
+    protected function applySearch(\Doctrine\ORM\QueryBuilder $qb, string $search): void
+    {
+        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $search)) {
+            $qb->andWhere('EXISTS (SELECT d.id FROM ' . SatisfactionDispatch::class . ' d WHERE d.request = r AND d.uuid = :uuid)')
+                ->setParameter('uuid', strtolower($search));
+
+            return;
+        }
+
+        if (ctype_digit($search)) {
+            $qb->andWhere('u.id = :userId')->setParameter('userId', (int) $search);
+
+            return;
+        }
+
+        $qb->andWhere('LOWER(a.name) LIKE :name')
+            ->setParameter('name', '%' . addcslashes(mb_strtolower($search), '%_\\') . '%');
     }
 
     /**
@@ -298,6 +325,90 @@ class Requests extends \MapasCulturais\Controller
             'restantes' => max(0, $total - $requeued),
             'intervalo' => \GovBrSatisfaction\Jobs\SendSatisfactionRequestJob::BULK_INTERVAL,
         ]);
+    }
+
+    /**
+     * Devolve à fila as recusadas e sem CPF selecionadas, com jobs escalonados.
+     *
+     * @return void
+     */
+    public function POST_requeueSelected()
+    {
+        $this->requireInstallationAdmin();
+
+        $app = App::i();
+
+        $ids = $this->selectedIds();
+
+        if ($ids === null) {
+            $this->json(['error' => \MapasCulturais\i::__('Seleção inválida.')], 400);
+
+            return;
+        }
+
+        if (!$ids) {
+            $this->json(['error' => \MapasCulturais\i::__('Nenhuma solicitação selecionada.')], 400);
+
+            return;
+        }
+
+        if (count($ids) > self::BULK_MAX) {
+            $this->json(['error' => sprintf(\MapasCulturais\i::__('Selecione no máximo %d por vez.'), self::BULK_MAX)], 400);
+
+            return;
+        }
+
+        $requests = $app->em->createQueryBuilder()
+            ->select('r')
+            ->from(SatisfactionRequest::class, 'r')
+            ->where('r.id IN (:ids)')
+            ->andWhere('r.sendStatus IN (:statuses)')
+            ->setParameter('ids', $ids)
+            ->setParameter('statuses', self::REQUEUE_STATUSES)
+            ->orderBy('r.createTimestamp', 'ASC')
+            ->addOrderBy('r.id', 'ASC')
+            ->getQuery()
+            ->getResult();
+
+        $requeued = $this->plugin()->sender()->requeueMany($requests, $app->user);
+
+        $this->json([
+            'devolvidas' => $requeued,
+            'ignoradas' => count($ids) - $requeued,
+            'intervalo' => \GovBrSatisfaction\Jobs\SendSatisfactionRequestJob::BULK_INTERVAL,
+        ]);
+    }
+
+    /** Ids da seleção, sem repetição; nulo quando algum é inválido. */
+    protected function selectedIds(): ?array
+    {
+        $raw = $this->data['ids'] ?? [];
+
+        if (is_string($raw)) {
+            $raw = trim($raw) === '' ? [] : explode(',', $raw);
+        }
+
+        if (!is_array($raw)) {
+            return null;
+        }
+
+        $ids = [];
+
+        foreach ($raw as $value) {
+            if (!is_int($value) && !is_string($value)) {
+                return null;
+            }
+
+            $id = filter_var(trim((string) $value), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+
+            if ($id === false) {
+                return null;
+            }
+
+            $ids[$id] = $id;
+        }
+
+        return array_values($ids);
     }
 
     /**

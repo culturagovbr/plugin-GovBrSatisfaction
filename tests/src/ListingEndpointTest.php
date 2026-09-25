@@ -10,12 +10,12 @@ class ListingEndpointTest extends TestCase
 {
     use RequestFactory;
 
-    protected function registros(): array
+    protected function registros(array $params = []): array
     {
         $app = App::i();
         $app->reset();
 
-        $app->run($this->requestFactory->GET('govbr-satisfaction-requests', 'index'), false);
+        $app->run($this->requestFactory->GET('govbr-satisfaction-requests', 'index', [], $params), false);
 
         $this->assertSame(200, $app->response->getStatusCode());
 
@@ -47,5 +47,69 @@ class ListingEndpointTest extends TestCase
         $this->login($this->userDirector->createUser('saasSuperAdmin'));
 
         $this->assertSame('CPF *** inválido', $this->registros()[0]['detalhe']);
+    }
+
+    /** Duas solicitações de pessoas diferentes; devolve a do cidadão e a da outra. */
+    protected function duasPessoas(): array
+    {
+        $this->publicarEspaco();
+
+        $outra = $this->criarCidadao();
+        $this->login($outra);
+        $this->publicar($this->spaceDirector()->createSpace($outra->profile));
+
+        $app = App::i();
+        $app->disableAccessControl();
+        $perfil = $app->repo('Agent')->find($this->cidadao->profile->id);
+        $perfil->name = 'Maria Aparecida';
+        $perfil->save(true);
+        $app->em->flush();
+        $app->enableAccessControl();
+
+        return [$this->cidadao, $outra];
+    }
+
+    function testBuscaPeloIdDoUsuario()
+    {
+        [, $outra] = $this->duasPessoas();
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+
+        $registros = $this->registros(['busca' => (string) $outra->id]);
+
+        $this->assertSame([$outra->id], array_column($registros, 'userId'));
+    }
+
+    function testBuscaPeloNomeSemDiferenciarMaiusculas()
+    {
+        [$cidadao] = $this->duasPessoas();
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+
+        $registros = $this->registros(['busca' => 'aparecida']);
+
+        $this->assertSame([$cidadao->id], array_column($registros, 'userId'));
+    }
+
+    function testBuscaPeloUuidDoEnvio()
+    {
+        [, $outra] = $this->duasPessoas();
+        $this->processarEnvios();
+
+        $uuid = $this->conn()->fetchOne(
+            'SELECT d.uuid FROM govbr_satisfaction_dispatch d JOIN govbr_satisfaction_request r ON r.id = d.request_id WHERE r.user_id = ?',
+            [$outra->id]
+        );
+
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+
+        $this->assertSame([$outra->id], array_column($this->registros(['busca' => strtoupper($uuid)]), 'userId'));
+    }
+
+    function testBuscaSemResultadoOuComCuringa()
+    {
+        $this->duasPessoas();
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+
+        $this->assertSame([], $this->registros(['busca' => 'ninguém com esse nome']));
+        $this->assertSame([], $this->registros(['busca' => '%']));
     }
 }

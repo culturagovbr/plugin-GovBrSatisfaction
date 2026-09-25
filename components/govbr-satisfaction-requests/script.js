@@ -26,7 +26,11 @@ app.component('govbr-satisfaction-requests', {
             // configuração vigente, para os avisos do topo
             status: { devMode: false, faltando: [], servicos: [], loteIntervalo: 10, loteMaximo: 500 },
 
-            filtros: { situacao: '', servico: '' },
+            filtros: { situacao: '', servico: '', busca: '' },
+
+            // ids selecionados, entre páginas e filtros
+            selecionados: {},
+            devolvendoSelecionadas: false,
 
             // linhas com o histórico aberto, e versão para recarregá-lo
             abertos: {},
@@ -43,7 +47,32 @@ app.component('govbr-satisfaction-requests', {
 
     computed: {
         filtroAtivo() {
-            return Boolean(this.filtros.situacao || this.filtros.servico);
+            return Boolean(this.filtros.situacao || this.filtros.servico || this.filtros.busca.trim());
+        },
+
+        totalGeral() {
+            return Object.values(this.totais).reduce((soma, n) => soma + n, 0);
+        },
+
+        // da página carregada, as que podem voltar à fila
+        selecionaveis() {
+            return this.registros.filter(registro => this.selecionavel(registro));
+        },
+
+        paginaToda() {
+            return this.selecionaveis.length > 0 && this.selecionaveis.every(registro => this.selecionados[registro.id]);
+        },
+
+        totalSelecionadas() {
+            return Object.keys(this.selecionados).length;
+        },
+
+        acimaDoTeto() {
+            return this.totalSelecionadas > this.status.loteMaximo;
+        },
+
+        podeDevolverSelecionadas() {
+            return this.totalSelecionadas > 0 && !this.acimaDoTeto && !this.devolvendoSelecionadas;
         },
 
         podeDevolverTodas() {
@@ -83,6 +112,7 @@ app.component('govbr-satisfaction-requests', {
                     pagina: this.pagina,
                     situacao: this.filtros.situacao,
                     servico: this.filtros.servico,
+                    busca: this.filtros.busca.trim(),
                 });
 
                 const response = await fetch(url);
@@ -214,16 +244,94 @@ app.component('govbr-satisfaction-requests', {
             return resto ? `${h} h ${resto} min` : `${h} h`;
         },
 
-        // clicar no contador filtra por aquela situação; clicar de novo limpa
-        alternarSituacao(situacao) {
-            this.filtros.situacao = this.filtros.situacao === situacao ? '' : situacao;
+        escolherSituacao(situacao) {
+            this.filtros.situacao = situacao;
             this.filtrar();
         },
 
+        // espera a digitação parar
+        buscar() {
+            clearTimeout(this.esperaBusca);
+            this.esperaBusca = setTimeout(() => this.filtrar(), 500);
+        },
+
         limparFiltros() {
+            clearTimeout(this.esperaBusca);
             this.filtros.situacao = '';
             this.filtros.servico = '';
+            this.filtros.busca = '';
             this.filtrar();
+        },
+
+        selecionavel(registro) {
+            return ['recusado', 'sem-cpf'].includes(registro.situacao);
+        },
+
+        alternarSelecao(registro) {
+            const selecionados = { ...this.selecionados };
+
+            if (selecionados[registro.id]) {
+                delete selecionados[registro.id];
+            } else {
+                selecionados[registro.id] = true;
+            }
+
+            this.selecionados = selecionados;
+        },
+
+        // marca ou desmarca as selecionáveis da página
+        alternarPagina() {
+            const selecionados = { ...this.selecionados };
+            const marcar = !this.paginaToda;
+
+            this.selecionaveis.forEach(registro => {
+                if (marcar) {
+                    selecionados[registro.id] = true;
+                } else {
+                    delete selecionados[registro.id];
+                }
+            });
+
+            this.selecionados = selecionados;
+        },
+
+        limparSelecao() {
+            this.selecionados = {};
+        },
+
+        async devolverSelecionadas(modal) {
+            this.devolvendoSelecionadas = true;
+
+            try {
+                const response = await fetch(Utils.createUrl('govbr-satisfaction-requests', 'requeueSelected'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: Object.keys(this.selecionados).map(Number) }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    this.messages.error(data.error || this.text('devolverSelecionadasErro'));
+                    return;
+                }
+
+                modal.close();
+
+                const ultima = this.duracao(Math.max(0, data.devolvidas - 1) * data.intervalo);
+                this.messages.success(this.fmt('devolverTodasFeito', data.devolvidas, ultima));
+
+                if (data.ignoradas > 0) {
+                    this.messages.alert(this.fmt('devolverSelecionadasIgnoradas', data.ignoradas));
+                }
+
+                this.selecionados = {};
+                this.filtrar();
+            } catch (error) {
+                this.messages.error(this.text('devolverSelecionadasErro'));
+            } finally {
+                this.devolvendoSelecionadas = false;
+            }
         },
 
         filtrar() {
