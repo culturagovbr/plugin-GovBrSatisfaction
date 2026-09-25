@@ -3,6 +3,7 @@
 namespace GovBrSatisfaction\Jobs;
 
 use GovBrSatisfaction\Bsc\Mask;
+use GovBrSatisfaction\Entities\SatisfactionDispatch;
 use GovBrSatisfaction\Entities\SatisfactionRequest;
 use GovBrSatisfaction\Plugin;
 use GovBrSatisfaction\Services\SatisfactionSender;
@@ -22,6 +23,9 @@ class SendSatisfactionRequestJob extends JobType
 
     /** Espera depois da primeira e da segunda falha. */
     const BACKOFF = ['+1 minutes', '+10 minutes'];
+
+    /** Resumo da solicitação recusada por falhas internas. */
+    const INTERNAL_ERROR = 'erro interno ao processar';
 
     /** Segundos entre os jobs de um lote. */
     const BULK_INTERVAL = 10;
@@ -98,6 +102,8 @@ class SendSatisfactionRequestJob extends JobType
 
             if ($crashes < SatisfactionSender::MAX_ATTEMPTS) {
                 self::enqueue($request, self::backoff($crashes), $crashes);
+            } else {
+                $this->giveUp((int) $request->id);
             }
 
             return true;
@@ -120,6 +126,35 @@ class SendSatisfactionRequestJob extends JobType
         }
 
         return true;
+    }
+
+    /** Recusa a solicitação e encerra os envios pendentes, direto no banco. */
+    private function giveUp(int $requestId): void
+    {
+        $app = App::i();
+        $now = (new \DateTime())->format('Y-m-d H:i:s');
+
+        try {
+            $conn = $app->em->getConnection();
+
+            $conn->executeStatement(
+                'UPDATE govbr_satisfaction_request SET send_status = ?, send_detail = ? WHERE id = ? AND send_status = ?',
+                [SatisfactionRequest::STATUS_REJECTED, self::INTERNAL_ERROR, $requestId, SatisfactionRequest::STATUS_PENDING]
+            );
+
+            $conn->executeStatement(
+                'UPDATE govbr_satisfaction_dispatch SET state = ?, finish_timestamp = ? WHERE request_id = ? AND state = ?',
+                [SatisfactionDispatch::STATE_REJECTED, $now, $requestId, SatisfactionDispatch::STATE_PENDING]
+            );
+
+            $app->log->error(sprintf('[GovBrSatisfaction] solicitação %d recusada após falhas internas seguidas', $requestId));
+        } catch (\Throwable $e) {
+            $app->log->error(sprintf(
+                '[GovBrSatisfaction] não foi possível recusar a solicitação %d: %s',
+                $requestId,
+                Mask::forLogText($e->getMessage())
+            ));
+        }
     }
 
     private function enqueuePending(): void
