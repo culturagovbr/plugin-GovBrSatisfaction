@@ -28,13 +28,9 @@ app.component('govbr-satisfaction-requests', {
 
             filtros: { situacao: '', servico: '' },
 
-            // solicitação aberta no modal
-            payload: null,
-            payloadMotivo: null,
-            payloadReconstruido: false,
-            resposta: null,
-            copiado: null,
-            carregandoPayload: false,
+            // linhas com o histórico aberto, e versão para recarregá-lo
+            abertos: {},
+            versoes: {},
 
             // id da solicitação sendo devolvida à fila
             devolvendo: null,
@@ -42,7 +38,6 @@ app.component('govbr-satisfaction-requests', {
 
             // só a resposta do pedido mais recente é aceita
             geracao: 0,
-            geracaoPayload: 0,
         };
     },
 
@@ -123,43 +118,8 @@ app.component('govbr-satisfaction-requests', {
             }
         },
 
-        async verPayload(id, abrir) {
-            abrir();
-
-            this.payload = null;
-            this.payloadMotivo = null;
-            this.payloadReconstruido = false;
-            this.resposta = null;
-            this.carregandoPayload = true;
-
-            const geracao = ++this.geracaoPayload;
-
-            try {
-                const response = await fetch(Utils.createUrl('govbr-satisfaction-requests', 'payload', { id }));
-                const data = await response.json();
-
-                if (geracao !== this.geracaoPayload) {
-                    return;
-                }
-
-                if (!response.ok) {
-                    this.payloadMotivo = data.error || this.text('payloadErro');
-                    return;
-                }
-
-                this.payload = data.payload;
-                this.payloadMotivo = data.motivo;
-                this.payloadReconstruido = !!data.reconstruido;
-                this.resposta = data.resposta;
-            } catch (error) {
-                if (geracao === this.geracaoPayload) {
-                    this.payloadMotivo = this.text('payloadErro');
-                }
-            } finally {
-                if (geracao === this.geracaoPayload) {
-                    this.carregandoPayload = false;
-                }
-            }
+        alternarHistorico(registro) {
+            this.abertos[registro.id] = !this.abertos[registro.id];
         },
 
         // recusada e sem CPF voltam à fila; pendente que já falhou antecipa a tentativa
@@ -196,6 +156,7 @@ app.component('govbr-satisfaction-requests', {
                 registro.situacao = data.situacao;
                 registro.tentativas = data.tentativas;
                 registro.disparada = data.disparada;
+                this.versoes[registro.id] = (this.versoes[registro.id] || 0) + 1;
 
                 modal.close();
                 this.messages.success(this.text(antecipou ? 'tentarAgoraFeito' : 'devolvido'));
@@ -275,7 +236,7 @@ app.component('govbr-satisfaction-requests', {
             this.carregar(true);
         },
 
-        // primeira frase do motivo; o texto completo fica no modal e no title
+        // primeira frase do motivo, até 70 caracteres
         resumo(detalhe) {
             if (!detalhe) {
                 return '';
@@ -284,62 +245,6 @@ app.component('govbr-satisfaction-requests', {
             const frase = detalhe.split(/[.;]\s/)[0];
 
             return frase.length > 70 ? frase.slice(0, 70) + '…' : frase;
-        },
-
-        async copiar(texto, chave) {
-            try {
-                if (navigator.clipboard && window.isSecureContext) {
-                    await navigator.clipboard.writeText(texto);
-                } else {
-                    const campo = document.createElement('textarea');
-                    campo.value = texto;
-                    campo.style.position = 'fixed';
-                    campo.style.opacity = '0';
-                    document.body.appendChild(campo);
-                    campo.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(campo);
-                }
-
-                this.copiado = chave;
-                setTimeout(() => {
-                    if (this.copiado === chave) {
-                        this.copiado = null;
-                    }
-                }, 2000);
-            } catch (error) {
-                this.messages.error(this.text('copiarErro'));
-            }
-        },
-
-        formatarJson(valor) {
-            return JSON.stringify(valor, null, 2);
-        },
-
-        // corpo só quando difere do resumo
-        corpoAcrescenta(registro) {
-            if (!this.resposta) {
-                return false;
-            }
-
-            return this.formatarResposta(this.resposta).trim() !== (registro.detalhe || '').trim();
-        },
-
-        formatarResposta(corpo) {
-            const ruido = ['stackTrace', 'suppressed', 'cause', 'localizedMessage', 'instance', 'type'];
-
-            try {
-                const json = JSON.parse(corpo);
-
-                if (json && typeof json === 'object' && !Array.isArray(json)) {
-                    ruido.forEach((chave) => delete json[chave]);
-                }
-
-                return JSON.stringify(json, null, 2);
-            } catch (e) {
-                // o proxy responde texto puro ("no healthy upstream")
-                return corpo;
-            }
         },
 
         tom(situacao) {

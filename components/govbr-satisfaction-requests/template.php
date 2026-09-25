@@ -7,6 +7,7 @@
 use MapasCulturais\i;
 
 $this->import('
+    govbr-satisfaction-dispatches
     mc-alert
     mc-card
     mc-icon
@@ -127,7 +128,8 @@ $this->import('
                         </thead>
 
                         <tbody>
-                            <tr v-for="registro in registros" :key="registro.id">
+                            <template v-for="registro in registros" :key="registro.id">
+                            <tr :class="{'govbr-satisfaction__linha--aberta': abertos[registro.id]}">
                                 <td>{{ rotuloServico(registro.servico) }}</td>
 
                                 <td>
@@ -188,74 +190,28 @@ $this->import('
                                         </template>
                                     </mc-modal>
 
-                                    <mc-modal classes="govbr-satisfaction__modal" :title="text('payloadTitulo')">
-                                        <template #button="{open}">
-                                            <button
-                                                class="button button--primary-noborder button--sm govbr-satisfaction__acao"
-                                                :title="text('ver')"
-                                                :aria-label="text('ver')"
-                                                @click="verPayload(registro.id, open)">
-                                                <mc-icon name="eye-view"></mc-icon>
-                                            </button>
-                                        </template>
-
-                                        <template #actions="modal">
-                                            <button class="button button--primary button--md" @click="modal.close()">
-                                                <?= i::__('Fechar') ?>
-                                            </button>
-                                        </template>
-
-                                        <template #default>
-                                            <!-- anúncio para leitor de tela -->
-                                            <span class="govbr-satisfaction__sr-only" aria-live="polite">{{ copiado ? text('copiado') : '' }}</span>
-
-                                            <div class="govbr-satisfaction__bloco">
-                                                <h4>
-                                                    {{ text('payloadTitulo') }}
-                                                    <span class="govbr-satisfaction__http govbr-satisfaction__http--aviso" v-if="payloadReconstruido">
-                                                        {{ text('payloadPreviaSelo') }}
-                                                    </span>
-
-                                                    <button
-                                                        type="button"
-                                                        class="govbr-satisfaction__copiar"
-                                                        v-if="payload && !carregandoPayload"
-                                                        @click="copiar(formatarJson(payload), 'payload-' + registro.id)">
-                                                        {{ copiado === 'payload-' + registro.id ? text('copiado') : text('copiar') }}
-                                                    </button>
-                                                </h4>
-
-                                                <p class="govbr-satisfaction__nota" v-if="payloadReconstruido">{{ text('payloadPrevia') }}</p>
-
-                                                <mc-loading :condition="carregandoPayload"></mc-loading>
-
-                                                <p class="govbr-satisfaction__nota" v-if="!carregandoPayload && payloadMotivo">{{ payloadMotivo }}</p>
-
-                                                <pre class="govbr-satisfaction__corpo" v-else-if="!carregandoPayload && payload">{{ formatarJson(payload) }}</pre>
-                                            </div>
-
-                                            <div class="govbr-satisfaction__bloco" v-if="registro.detalhe || resposta">
-                                                <h4>
-                                                    {{ text(registro.situacao === 'pendente' ? 'ultimaRespostaTitulo' : 'respostaTitulo') }}
-                                                    <span class="govbr-satisfaction__http" v-if="registro.httpStatus">HTTP {{ registro.httpStatus }}</span>
-
-                                                    <button
-                                                        type="button"
-                                                        class="govbr-satisfaction__copiar"
-                                                        v-if="resposta"
-                                                        @click="copiar(formatarResposta(resposta), 'resposta-' + registro.id)">
-                                                        {{ copiado === 'resposta-' + registro.id ? text('copiado') : text('copiar') }}
-                                                    </button>
-                                                </h4>
-
-                                                <p class="govbr-satisfaction__nota" v-if="registro.detalhe">{{ registro.detalhe }}</p>
-
-                                                <pre class="govbr-satisfaction__corpo" v-if="corpoAcrescenta(registro)">{{ formatarResposta(resposta) }}</pre>
-                                            </div>
-                                        </template>
-                                    </mc-modal>
+                                    <button
+                                        type="button"
+                                        class="button button--primary-noborder button--sm govbr-satisfaction__acao"
+                                        :title="text('historico')"
+                                        :aria-label="text('historico')"
+                                        :aria-expanded="!!abertos[registro.id]"
+                                        :aria-controls="'govbr-satisfaction-historico-' + registro.id"
+                                        @click="alternarHistorico(registro)">
+                                        <mc-icon name="govbr-satisfaction-history"></mc-icon>
+                                    </button>
                                 </td>
                             </tr>
+
+                            <tr v-if="abertos[registro.id]" class="govbr-satisfaction__historico" :id="'govbr-satisfaction-historico-' + registro.id">
+                                <td colspan="7">
+                                    <govbr-satisfaction-dispatches
+                                        :key="registro.id + '-' + (versoes[registro.id] || 0)"
+                                        :request-id="registro.id">
+                                    </govbr-satisfaction-dispatches>
+                                </td>
+                            </tr>
+                            </template>
                         </tbody>
                     </table>
                 </div>

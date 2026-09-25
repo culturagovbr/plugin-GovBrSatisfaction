@@ -201,6 +201,14 @@ class Plugin extends \MapasCulturais\Plugin
             $iconset['govbr-satisfaction'] = 'material-symbols:rate-review-outline';
             $iconset['govbr-satisfaction-requeue'] = 'material-symbols:replay';
             $iconset['govbr-satisfaction-retry'] = 'material-symbols:send-outline';
+            $iconset['govbr-satisfaction-history'] = 'material-symbols:history';
+            $iconset['govbr-satisfaction-copy'] = 'material-symbols:content-copy-outline';
+            $iconset['govbr-satisfaction-pending'] = 'material-symbols:schedule-outline';
+            $iconset['govbr-satisfaction-success'] = 'material-symbols:check-circle';
+            $iconset['govbr-satisfaction-simulated'] = 'material-symbols:code';
+            $iconset['govbr-satisfaction-error'] = 'material-symbols:error';
+            $iconset['govbr-satisfaction-rejected'] = 'material-symbols:cancel';
+            $iconset['govbr-satisfaction-replaced'] = 'material-symbols:swap-horiz';
         });
     }
 
