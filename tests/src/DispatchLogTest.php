@@ -170,6 +170,30 @@ class DispatchLogTest extends TestCase
         $this->assertNull($this->tentativas()[0]['payload_sealed']);
     }
 
+    /** Erro de validação que ecoa o valor enviado não grava o dado real. */
+    function testRespostaQueEcoaOValorEnviadoSaiMascarada()
+    {
+        $envio = $this->log->start($this->solicitacao(), SatisfactionDispatch::ORIGIN_REGISTRATION);
+
+        $this->log->recordAttempt(
+            $envio,
+            1,
+            3,
+            Outcome::Rejected->value,
+            payload: self::PAYLOAD,
+            httpStatus: 400,
+            response: '{"fieldErrors":[{"rejectedValue":"Maria da Silva"},{"rejectedValue":"200.130.5.7"}]}',
+            detail: 'Maria da Silva: valor rejeitado',
+        );
+
+        $linha = $this->tentativas()[0];
+
+        foreach (['Maria da Silva', '200.130.5.7'] as $pessoal) {
+            $this->assertStringNotContainsString($pessoal, $linha['response']);
+            $this->assertStringNotContainsString($pessoal, $linha['detail']);
+        }
+    }
+
     /** Resposta grande é cortada sem quebrar caractere. */
     function testRespostaGrandeEhCortadaSemQuebrarCaractere()
     {

@@ -67,6 +67,7 @@ class SatisfactionSender
         }
 
         $payload = Payload::build($request, $cpf);
+        $known = Mask::personalValues($payload);
         $number = (int) $request->sendAttempts + 1;
         $startedAt = new \DateTime();
 
@@ -76,13 +77,13 @@ class SatisfactionSender
             $app->log->error(sprintf(
                 '[GovBrSatisfaction] corpo da solicitação %d não codifica: %s',
                 $request->id,
-                Mask::forLogText($e->getMessage())
+                Mask::forLogText($e->getMessage(), $known)
             ));
 
             $result = new Result(Outcome::Rejected, null, 'erro ao montar o corpo: ' . $e->getMessage());
 
             $request->sendStatus = SatisfactionRequest::STATUS_REJECTED;
-            $request->sendDetail = self::detail($result);
+            $request->sendDetail = self::detail($result, $known);
             $request->save(true);
 
             $this->record($dispatch, $number, $result, null, $startedAt);
@@ -97,7 +98,7 @@ class SatisfactionSender
             $app->log->error(sprintf(
                 '[GovBrSatisfaction] o cliente lançou ao enviar a solicitação %d: %s',
                 $request->id,
-                Mask::forLogText($e->getMessage())
+                Mask::forLogText($e->getMessage(), $known)
             ));
 
             $result = new Result(Outcome::Retry, null, 'erro no envio: ' . $e->getMessage());
@@ -119,7 +120,7 @@ class SatisfactionSender
         }
 
         $request->sendHttpStatus = $result->status;
-        $request->sendDetail = self::detail($result);
+        $request->sendDetail = self::detail($result, $known);
         $request->sendStatus = match (true) {
             $result->outcome === Outcome::Sent => SatisfactionRequest::STATUS_SENT,
             $result->outcome === Outcome::Rejected, $giveUp => SatisfactionRequest::STATUS_REJECTED,
@@ -274,10 +275,10 @@ class SatisfactionSender
     }
 
     /** Resumo mascarado, no tamanho da coluna. */
-    private static function detail(Result $result): ?string
+    private static function detail(Result $result, array $known): ?string
     {
         return $result->detail === null
             ? null
-            : mb_substr(Mask::forLogText($result->detail), 0, Result::DETAIL_MAX);
+            : mb_substr(Mask::forLogText($result->detail, $known), 0, Result::DETAIL_MAX);
     }
 }

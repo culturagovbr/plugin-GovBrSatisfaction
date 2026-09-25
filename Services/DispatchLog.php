@@ -121,6 +121,7 @@ class DispatchLog
         $attempt->method = $method;
         $attempt->endpoint = $endpoint;
         $attempt->httpStatus = $httpStatus;
+        $known = $payload === null ? [] : Mask::personalValues($payload);
         $attempt->payload = $payload === null ? null : Payload::encode(Mask::forScreen($payload));
         $vault = $this->vault ?? \GovBrSatisfaction\Plugin::instance()?->vault();
         $attempt->payloadSealed = $payload === null || !$vault
@@ -128,15 +129,15 @@ class DispatchLog
             : $vault->seal(Payload::encode($payload), PayloadVault::context($dispatch->uuid, $number));
         $attempt->detail = $detail === null
             ? null
-            : mb_substr(Mask::forLogText(self::utf8($detail)), 0, Result::DETAIL_MAX);
+            : mb_substr(Mask::forLogText(self::utf8($detail), $known), 0, Result::DETAIL_MAX);
         $attempt->responseHeaders = $responseHeaders === null
             ? null
-            : array_values(array_map(fn($line) => Mask::forLogText(self::utf8((string) $line)), $responseHeaders));
+            : array_values(array_map(fn($line) => Mask::forLogText(self::utf8((string) $line), $known), $responseHeaders));
         $attempt->sentAt = $sentAt ?? new \DateTime();
         $attempt->durationMs = $durationMs;
 
         if ($response !== null) {
-            $masked = Mask::forBody(self::utf8($response));
+            $masked = Mask::forBody(self::utf8($response), $known);
             $attempt->responseTruncated = strlen($masked) > self::RESPONSE_MAX;
             $attempt->response = $attempt->responseTruncated
                 ? mb_strcut($masked, 0, self::RESPONSE_MAX, 'UTF-8')
