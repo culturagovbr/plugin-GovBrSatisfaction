@@ -40,6 +40,7 @@ class PayloadEndpointTest extends TestCase
         $this->assertSame('776.***.***-68', $dados['payload']['cpfCidadao']);
         $this->assertSame($dados['payload']['cpfCidadao'], $dados['payload']['usuario']);
         $this->assertStringNotContainsString(self::CPF, json_encode($dados));
+        $this->assertStringEndsWith('.***.***', $dados['payload']['ipUsuario']);
 
         // a resposta do BSC vem junto
         $this->assertStringContainsString('FIXTURE', (string) $dados['resposta']);
@@ -71,6 +72,21 @@ class PayloadEndpointTest extends TestCase
         $this->assertNull($dados['payload']);
         $this->assertTrue($dados['reconstruido']);
         $this->assertNotEmpty($dados['motivo']);
+    }
+
+    /** Resposta gravada por extenso sai mascarada. */
+    function testRespostaGravadaPorExtensoSaiMascarada()
+    {
+        $this->publicarEspaco();
+        $this->processarEnvios();
+        $id = $this->idDaSolicitacao();
+        $this->alterarLinha($id, ['send_response' => '{"recebido":{"cpfCidadao":"77689062768","email":"maria.silva@example.com"}}']);
+
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+        $resposta = $this->conteudo($id)['resposta'];
+
+        $this->assertStringNotContainsString(self::CPF, $resposta);
+        $this->assertStringContainsString('m***@example.com', $resposta);
     }
 
     function testSolicitacaoInexistenteDa404()

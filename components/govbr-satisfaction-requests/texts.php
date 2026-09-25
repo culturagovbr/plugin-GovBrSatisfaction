@@ -44,7 +44,7 @@ return [
     'loteResumo' => i::__('%s recusada(s) com o filtro atual'),
     'devolverTodas' => i::__('Devolver todas à fila (%s)'),
     'devolverTodasTitulo' => i::__('Devolver todas à fila?'),
-    'devolverTodasConfirmacao' => i::__('%s solicitações voltam à fila, uma a cada %s segundos — cerca de %s até a última. O contador de tentativas de cada uma é zerado.'),
+    'devolverTodasConfirmacao' => i::__('%s solicitações voltam à fila, uma a cada %s segundos; a última sai em cerca de %s. O contador de tentativas de cada uma é zerado.'),
     'devolverTodasTeto' => i::__('Saem %s por vez, das mais antigas para as mais novas; há %s no total. Clique de novo para as próximas.'),
     'devolverTodasFeito' => i::__('%s solicitações devolvidas à fila; a última será tentada em cerca de %s.'),
     'devolverTodasRestantes' => i::__('Ainda restam %s recusadas. Clique de novo para as próximas.'),

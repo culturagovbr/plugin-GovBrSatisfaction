@@ -135,7 +135,7 @@ class SendTest extends TestCase
 
         $enviado = json_decode($this->solicitacoes()[0]['send_payload'], true);
 
-        $this->assertSame('10.0.0.5', $enviado['ipOrigem']);
+        $this->assertSame('10.0.***.***', $enviado['ipOrigem']);
         $this->assertNotEmpty($enviado['ipUsuario'], 'ipUsuario é obrigatório no contrato');
     }
 
@@ -261,6 +261,36 @@ class SendTest extends TestCase
         }
 
         $this->assertSituacao('recusado', $this->solicitacoes()[0], 'a exceção deveria esgotar o teto de tentativas');
+    }
+
+    /** Resposta e resumo do BSC são gravados mascarados. */
+    function testRespostaEResumoSaoGravadosMascarados()
+    {
+        $this->publicarEspaco();
+        $corpo = '{"message":"CPF 77689062768 inválido","recebido":{"email":"maria.silva@example.com","nomeCidadao":"Maria da Silva"}}';
+        $this->configurar(['client' => $this->clienteQueDevolve(new Result(Outcome::Rejected, 400, 'CPF 77689062768 inválido', $corpo))]);
+
+        $this->processarEnvios();
+
+        $linha = $this->solicitacoes()[0];
+
+        $this->assertSituacao('recusado', $linha);
+        $this->assertSame('CPF *** inválido', $linha['send_detail']);
+
+        foreach ([self::CPF, 'maria.silva', 'da Silva'] as $pessoal) {
+            $this->assertStringNotContainsString($pessoal, $linha['send_response'], "{$pessoal} gravado na resposta");
+        }
+    }
+
+    /** Exceção com CPF na mensagem não vai por extenso para o resumo. */
+    function testExcecaoDoClienteGravaResumoMascarado()
+    {
+        $this->publicarEspaco();
+        $this->configurar(['client' => $this->clienteQueLanca(new \RuntimeException('falhou para 77689062768'))]);
+
+        $this->processarEnvios();
+
+        $this->assertSame('erro no envio: falhou para ***', $this->solicitacoes()[0]['send_detail']);
     }
 
     /**

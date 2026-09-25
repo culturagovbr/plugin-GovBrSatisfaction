@@ -157,7 +157,7 @@ class HttpClient implements Client
             '[GovBrSatisfaction] envio ao BSC: %s, HTTP %s%s',
             $result->outcome->value,
             $result->status ?? '-',
-            $result->detail ? " — " . Mask::forLogText($result->detail) : ''
+            $result->detail ? ": " . Mask::forLogText($result->detail) : ''
         );
 
         if ($result->outcome === Outcome::Sent) {

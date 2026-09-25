@@ -13,6 +13,8 @@ class MaskTest extends TestCase
         'usuario' => '77689062768',
         'email' => 'maria.silva@example.com',
         'nomeCidadao' => 'Maria da Silva',
+        'ipOrigem' => '200.130.5.7',
+        'ipUsuario' => '2001:db8:85a3::8a2e:370:7334',
         'servico' => '13683',
     ];
 
@@ -26,6 +28,8 @@ class MaskTest extends TestCase
         $this->assertSame($mascarado['cpfCidadao'], $mascarado['usuario']);
         $this->assertSame('m***@example.com', $mascarado['email']);
         $this->assertSame('Maria ***', $mascarado['nomeCidadao']);
+        $this->assertSame('200.130.***.***', $mascarado['ipOrigem']);
+        $this->assertSame('2001:db8:***', $mascarado['ipUsuario']);
         $this->assertSame('13683', $mascarado['servico'], 'campo não pessoal foi alterado');
     }
 
@@ -40,6 +44,7 @@ class MaskTest extends TestCase
         $this->assertSame('13683', $mascarado['servico']);
         $this->assertStringNotContainsString('77689062768', json_encode($mascarado));
         $this->assertStringNotContainsString('maria', json_encode($mascarado));
+        $this->assertStringNotContainsString('200.130', json_encode($mascarado));
     }
 
     /**
@@ -88,5 +93,53 @@ class MaskTest extends TestCase
     function testEmailSemArroba()
     {
         $this->assertSame('m***', Mask::email('maria'));
+    }
+
+    /**
+     * Resposta do BSC mascarada.
+     *
+     * @dataProvider respostasDoBsc
+     */
+    function testRespostaDoBscSaiMascarada(string $corpo, string $esperado)
+    {
+        $this->assertSame($esperado, Mask::forBody($corpo));
+    }
+
+    public static function respostasDoBsc(): array
+    {
+        return [
+            'campos pessoais aninhados' => [
+                '{"message":"erro","recebido":{"cpfCidadao":"77689062768","email":"maria.silva@example.com","nomeCidadao":"Maria da Silva","ipUsuario":"200.130.5.7"}}',
+                '{"message":"erro","recebido":{"cpfCidadao":"776.***.***-68","email":"m***@example.com","nomeCidadao":"Maria ***","ipUsuario":"200.130.***.***"}}',
+            ],
+            'cpf no texto' => ['{"detail":"CPF 77689062768 inválido"}', '{"detail":"CPF *** inválido"}'],
+            'cpf numérico em campo pessoal' => ['{"cpfCidadao":77689062768}', '{"cpfCidadao":"776.***.***-68"}'],
+            'lista' => ['[{"email":"ana@example.com"}]', '[{"email":"a***@example.com"}]'],
+            'corpo que não é json' => ['erro para maria.silva@example.com', 'erro para ***'],
+            'sem dado pessoal fica igual' => ['{"status": "BAD_REQUEST", "codigoErro": 1790278898}', '{"status": "BAD_REQUEST", "codigoErro": 1790278898}'],
+        ];
+    }
+
+    function testRespostaMascaradaDuasVezesDaNoMesmo()
+    {
+        $umaVez = Mask::forBody('{"recebido":{"cpfCidadao":"77689062768","email":"maria.silva@example.com"},"detail":"CPF 77689062768"}');
+
+        $this->assertSame($umaVez, Mask::forBody($umaVez));
+    }
+
+    /** @dataProvider enderecos */
+    function testIpMantemOsDoisPrimeirosBlocos(string $ip, string $esperado)
+    {
+        $this->assertSame($esperado, Mask::ip($ip));
+        $this->assertSame($esperado, Mask::ip($esperado));
+    }
+
+    public static function enderecos(): array
+    {
+        return [
+            'ipv4' => ['200.130.5.7', '200.130.***.***'],
+            'ipv6' => ['2001:db8:85a3::8a2e:370:7334', '2001:db8:***'],
+            'inválido' => ['desconhecido', '***'],
+        ];
     }
 }

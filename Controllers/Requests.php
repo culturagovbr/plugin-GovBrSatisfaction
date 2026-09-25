@@ -124,7 +124,7 @@ class Requests extends \MapasCulturais\Controller
             'payload' => $payload === null ? null : Mask::forScreen($payload),
             'reconstruido' => $preview,
             'motivo' => $reason,
-            'resposta' => $request->sendResponse,
+            'resposta' => $request->sendResponse === null ? null : Mask::forBody($request->sendResponse),
         ]);
     }
 
@@ -259,13 +259,13 @@ class Requests extends \MapasCulturais\Controller
             'id' => (int) $record['id'],
             'servico' => (string) $record['servico'],
             'situacao' => $record['sendStatus'],
-            'pessoa' => $record['agente'] ?: $record['email'],
+            'pessoa' => $record['agente'] ?: ($record['email'] ? Mask::email($record['email']) : null),
             'userId' => (int) $record['userId'],
             'origem' => $type ? $type . ' #' . (int) $record['objectId'] : null,
             'registrada' => $record['createTimestamp']->getTimestamp(),
             'disparada' => $record['sendTimestamp']?->getTimestamp(),
             'httpStatus' => $record['sendHttpStatus'] === null ? null : (int) $record['sendHttpStatus'],
-            'detalhe' => $record['sendDetail'],
+            'detalhe' => $record['sendDetail'] === null ? null : Mask::forLogText($record['sendDetail']),
             'tentativas' => (int) $record['sendAttempts'],
         ];
     }
