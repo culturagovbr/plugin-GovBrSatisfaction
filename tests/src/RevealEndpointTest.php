@@ -109,6 +109,38 @@ class RevealEndpointTest extends TestCase
         $this->assertSame('copiar', end($auditoria)['action']);
     }
 
+    /** Acima do limite da janela, recusa e só volta com um novo motivo. */
+    function testLimiteDaJanelaPedeNovoMotivo()
+    {
+        $tentativa = $this->tentativaCifrada();
+        $this->autorizado();
+
+        [, $janela] = $this->post('unlockReveal', ['motivo' => self::MOTIVO]);
+        $this->assertSame(PayloadReveal::WINDOW_LIMIT, $janela['restantes']);
+
+        for ($i = 1; $i <= PayloadReveal::WINDOW_LIMIT; $i++) {
+            [$status, $dados] = $this->post('reveal', ['tentativa' => $tentativa, 'acao' => $i % 2 ? 'revelar' : 'copiar']);
+
+            $this->assertSame(200, $status);
+            $this->assertSame(PayloadReveal::WINDOW_LIMIT - $i, $dados['restantes']);
+        }
+
+        [$status, $dados] = $this->post('reveal', ['tentativa' => $tentativa]);
+
+        $this->assertSame(403, $status);
+        $this->assertFalse($dados['janela']);
+        $this->assertTrue($dados['limite']);
+        $this->assertArrayNotHasKey('payload', $dados);
+
+        $auditoria = $this->auditoria();
+        $this->assertSame(['negado', 'limite da janela'], [end($auditoria)['action'], end($auditoria)['reason']]);
+
+        $this->post('unlockReveal', ['motivo' => 'Segundo chamado aberto pelo cidadão']);
+        [$status] = $this->post('reveal', ['tentativa' => $tentativa]);
+
+        $this->assertSame(200, $status);
+    }
+
     function testSemJanelaRecusaEAudita()
     {
         $tentativa = $this->tentativaCifrada();
@@ -239,7 +271,13 @@ class RevealEndpointTest extends TestCase
         $status = json_decode((string) $app->response->getBody(), true);
 
         $this->assertSame(
-            ['disponivel' => true, 'autorizado' => true, 'motivoMinimo' => PayloadReveal::REASON_MIN, 'segundos' => PayloadReveal::WINDOW],
+            [
+                'disponivel' => true,
+                'autorizado' => true,
+                'motivoMinimo' => PayloadReveal::REASON_MIN,
+                'segundos' => PayloadReveal::WINDOW,
+                'limite' => PayloadReveal::WINDOW_LIMIT,
+            ],
             $status['revelacao']
         );
 

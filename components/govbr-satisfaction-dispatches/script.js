@@ -54,6 +54,7 @@ app.component('govbr-satisfaction-dispatches', {
             // payload real por id da tentativa, só enquanto a janela está aberta
             revelados: {},
             janelaAte: 0,
+            restantes: 0,
             agora: Date.now(),
             pendente: null,
             motivo: '',
@@ -195,6 +196,10 @@ app.component('govbr-satisfaction-dispatches', {
 
         // sem janela aberta, pede o motivo e repete depois
         async pedir(tentativa, acao) {
+            if (this.revelando) {
+                return;
+            }
+
             if (this.restante <= 0) {
                 this.pedirMotivo(tentativa, acao);
                 return;
@@ -205,8 +210,12 @@ app.component('govbr-satisfaction-dispatches', {
             try {
                 const [response, data] = await this.postar('reveal', { tentativa: tentativa.id, acao });
 
-                // janela vencida no servidor
+                // janela vencida ou limite atingido no servidor
                 if (response.status === 403 && data.janela === false) {
+                    if (data.limite) {
+                        this.messages.alert(data.error);
+                    }
+
                     this.fecharJanela();
                     this.pedirMotivo(tentativa, acao);
                     return;
@@ -217,7 +226,7 @@ app.component('govbr-satisfaction-dispatches', {
                     return;
                 }
 
-                this.abrirJanela(data.ate);
+                this.abrirJanela(data.ate, data.restantes);
 
                 if (acao === 'copiar') {
                     await this.copiar(this.json(data.payload));
@@ -248,7 +257,7 @@ app.component('govbr-satisfaction-dispatches', {
                     return;
                 }
 
-                this.abrirJanela(data.ate);
+                this.abrirJanela(data.ate, data.restantes);
 
                 const pendente = this.pendente;
                 modal.close();
@@ -264,8 +273,9 @@ app.component('govbr-satisfaction-dispatches', {
             }
         },
 
-        abrirJanela(ate) {
+        abrirJanela(ate, restantes) {
             this.janelaAte = ate * 1000;
+            this.restantes = restantes;
             this.agora = Date.now();
 
             if (!this.relogioId) {

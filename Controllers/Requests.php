@@ -269,7 +269,7 @@ class Requests extends \MapasCulturais\Controller
         $until = $reveal->unlock($app->user, mb_substr($reason, 0, 1000));
 
         $this->noStore();
-        $this->json(['ate' => $until, 'segundos' => PayloadReveal::WINDOW]);
+        $this->json(['ate' => $until, 'segundos' => PayloadReveal::WINDOW, 'restantes' => $reveal->remaining()]);
     }
 
     /**
@@ -317,6 +317,18 @@ class Requests extends \MapasCulturais\Controller
             return;
         }
 
+        if ($reveal->remaining() < 1) {
+            $reveal->deny($app->user, $attempt, 'limite da janela');
+            $reveal->close();
+            $this->json([
+                'error' => sprintf(\MapasCulturais\i::__('Limite de %d revelações atingido. Informe um novo motivo.'), PayloadReveal::WINDOW_LIMIT),
+                'janela' => false,
+                'limite' => true,
+            ], 403);
+
+            return;
+        }
+
         if ($attempt->payloadSealed === null || !$plugin->vault()) {
             $this->json(['error' => \MapasCulturais\i::__('O conteúdo real desta tentativa não foi guardado.')], 404);
 
@@ -333,7 +345,7 @@ class Requests extends \MapasCulturais\Controller
         }
 
         $this->noStore();
-        $this->json(['payload' => $payload, 'ate' => $until]);
+        $this->json(['payload' => $payload, 'ate' => $until, 'restantes' => $reveal->remaining()]);
     }
 
     /** Resposta que não pode ficar em cache. */
@@ -547,6 +559,7 @@ class Requests extends \MapasCulturais\Controller
                 'autorizado' => $plugin->canReveal(App::i()->user),
                 'motivoMinimo' => PayloadReveal::REASON_MIN,
                 'segundos' => PayloadReveal::WINDOW,
+                'limite' => PayloadReveal::WINDOW_LIMIT,
             ],
         ]);
     }

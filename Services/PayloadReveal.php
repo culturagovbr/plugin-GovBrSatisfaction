@@ -21,6 +21,9 @@ class PayloadReveal
     /** Tamanho mínimo do motivo. */
     const REASON_MIN = 10;
 
+    /** Revelações e cópias por janela. */
+    const WINDOW_LIMIT = 10;
+
     const SESSION_KEY = 'govbr-satisfaction.reveal';
 
     public function __construct(private readonly Plugin $plugin)
@@ -32,7 +35,7 @@ class PayloadReveal
     {
         $until = time() + self::WINDOW;
 
-        $_SESSION[self::SESSION_KEY] = ['user' => (int) $user->id, 'until' => $until, 'reason' => $reason];
+        $_SESSION[self::SESSION_KEY] = ['user' => (int) $user->id, 'until' => $until, 'reason' => $reason, 'count' => 0];
 
         $this->audit($user, SatisfactionReveal::ACTION_UNLOCK, null, $reason);
 
@@ -51,6 +54,18 @@ class PayloadReveal
         return (int) $window['until'];
     }
 
+    /** Revelações que ainda cabem na janela aberta. */
+    public function remaining(): int
+    {
+        return max(0, self::WINDOW_LIMIT - (int) ($_SESSION[self::SESSION_KEY]['count'] ?? 0));
+    }
+
+    /** Fecha a janela do usuário. */
+    public function close(): void
+    {
+        unset($_SESSION[self::SESSION_KEY]);
+    }
+
     /** Payload real da tentativa, registrando a ação com o motivo da janela. */
     public function reveal(User $user, SatisfactionAttempt $attempt, string $action): array
     {
@@ -66,6 +81,8 @@ class PayloadReveal
         );
 
         $this->audit($user, $action, $attempt, $_SESSION[self::SESSION_KEY]['reason'] ?? null);
+
+        $_SESSION[self::SESSION_KEY]['count'] = (int) ($_SESSION[self::SESSION_KEY]['count'] ?? 0) + 1;
 
         return json_decode($plain, true, 512, JSON_THROW_ON_ERROR);
     }
