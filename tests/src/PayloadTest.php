@@ -124,18 +124,18 @@ class PayloadTest extends TestCase
         $this->publicarEspaco();
         $this->processarEnvios();
 
-        $linha = $this->solicitacoes()[0];
-        $guardado = json_decode($linha['send_payload'], true);
+        $gravado = $this->ultimaTentativa()['payload'];
+        $guardado = json_decode($gravado, true);
 
         $this->assertIsArray($guardado, 'o conteúdo enviado não foi guardado');
         $this->assertSame('776.***.***-68', $guardado['cpfCidadao']);
         $this->assertSame($guardado['cpfCidadao'], $guardado['usuario']);
-        $this->assertStringNotContainsString(self::CPF, $linha['send_payload'], 'CPF por extenso na tabela');
+        $this->assertStringNotContainsString(self::CPF, $gravado, 'CPF por extenso na tabela');
         $this->assertSame($this->servico('espaco'), $guardado['servico']);
 
-        $this->assertSame(Payload::encode($guardado), $linha['send_payload']);
-        $this->assertStringContainsString('"dataEtapa":"' . $guardado['dataEtapa'] . '"', $linha['send_payload']);
-        $this->assertStringNotContainsString('\/', $linha['send_payload']);
+        $this->assertSame(Payload::encode($guardado), $gravado);
+        $this->assertStringContainsString('"dataEtapa":"' . $guardado['dataEtapa'] . '"', $gravado);
+        $this->assertStringNotContainsString('\/', $gravado);
     }
 
     /** A cópia não acompanha o cadastro. */
@@ -144,7 +144,7 @@ class PayloadTest extends TestCase
         $this->publicarEspaco();
         $this->processarEnvios();
 
-        $antes = $this->solicitacoes()[0]['send_payload'];
+        $antes = $this->ultimaTentativa()['payload'];
 
         $app = App::i();
         $agente = $this->perfilAtual();
@@ -155,6 +155,6 @@ class PayloadTest extends TestCase
         $app->em->flush();
         $app->enableAccessControl();
 
-        $this->assertSame($antes, $this->solicitacoes()[0]['send_payload']);
+        $this->assertSame($antes, $this->ultimaTentativa()['payload']);
     }
 }

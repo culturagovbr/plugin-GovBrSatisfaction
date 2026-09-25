@@ -5,6 +5,7 @@ namespace GovBrSatisfaction\Jobs;
 use GovBrSatisfaction\Bsc\Mask;
 use GovBrSatisfaction\Entities\SatisfactionRequest;
 use GovBrSatisfaction\Plugin;
+use GovBrSatisfaction\Services\SatisfactionSender;
 use GovBrSatisfaction\Services\SendOutcome;
 use MapasCulturais\App;
 use MapasCulturais\Definitions\JobType;
@@ -19,11 +20,8 @@ class SendSatisfactionRequestJob extends JobType
 {
     const SLUG = 'govbr-satisfaction-send';
 
-    /** Espera entre tentativas de transporte, por falhas seguidas. */
-    const BACKOFF = ['+1 minutes', '+10 minutes', '+30 minutes'];
-
-    /** Espera após 500 da aplicação. */
-    const ROW_RETRY = '+1 minutes';
+    /** Espera depois da primeira e da segunda falha. */
+    const BACKOFF = ['+1 minutes', '+10 minutes'];
 
     /** Segundos entre os jobs de um lote. */
     const BULK_INTERVAL = 10;
@@ -36,13 +34,21 @@ class SendSatisfactionRequestJob extends JobType
 
     /**
      * Enfileira o envio de uma solicitação, substituindo um job dela se houver.
+     *
+     * @param int $crashes Execuções seguidas em que o próprio job lançou exceção
      */
-    public static function enqueue(SatisfactionRequest $request, int $failures = 0, string $when = 'now'): void
+    public static function enqueue(SatisfactionRequest $request, string $when = 'now', int $crashes = 0): void
     {
         App::i()->enqueueOrReplaceJob(self::SLUG, [
             'request_id' => $request->id,
-            'failures' => $failures,
+            'crashes' => $crashes,
         ], $when);
+    }
+
+    /** Espera antes da próxima tentativa, pelo número de falhas. */
+    public static function backoff(int $failures): string
+    {
+        return self::BACKOFF[min(max($failures, 1), count(self::BACKOFF)) - 1];
     }
 
     protected function _execute(Job $job)
@@ -69,8 +75,6 @@ class SendSatisfactionRequestJob extends JobType
             return true;
         }
 
-        $failures = (int) ($job->failures ?? 0);
-
         $app->disableAccessControl();
 
         try {
@@ -80,31 +84,37 @@ class SendSatisfactionRequestJob extends JobType
                 $app->em->flush();
             }
         } catch (\Throwable $e) {
+            $crashes = (int) ($job->crashes ?? 0) + 1;
+
             $app->log->error(sprintf(
-                '[GovBrSatisfaction] falha ao processar a solicitação %d: %s',
+                '[GovBrSatisfaction] falha ao processar a solicitação %d (%d/%d): %s',
                 $request->id,
+                $crashes,
+                SatisfactionSender::MAX_ATTEMPTS,
                 Mask::forLogText($e->getMessage())
             ));
 
-            // Exceção: trata como falha de transporte.
-            $outcome = SendOutcome::RetryTransport;
+            if ($crashes < SatisfactionSender::MAX_ATTEMPTS) {
+                self::enqueue($request, self::backoff($crashes), $crashes);
+            }
+
+            return true;
         } finally {
             $app->enableAccessControl();
         }
 
-        if ($outcome === SendOutcome::RetryTransport) {
-            $failures++;
-            $when = self::BACKOFF[min($failures - 1, count(self::BACKOFF) - 1)];
+        if ($outcome === SendOutcome::Retry) {
+            $when = self::backoff((int) $request->sendAttempts);
 
             $app->log->warning(sprintf(
-                '[GovBrSatisfaction] solicitação %d: transporte indisponível; nova tentativa %s',
+                '[GovBrSatisfaction] solicitação %d: tentativa %d/%d falhou; nova tentativa %s',
                 $request->id,
+                (int) $request->sendAttempts,
+                SatisfactionSender::MAX_ATTEMPTS,
                 $when
             ));
 
-            self::enqueue($request, $failures, $when);
-        } elseif ($outcome === SendOutcome::RetryRow) {
-            self::enqueue($request, 0, self::ROW_RETRY);
+            self::enqueue($request, $when);
         }
 
         return true;

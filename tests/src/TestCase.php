@@ -190,6 +190,27 @@ abstract class TestCase extends \Tests\Abstract\TestCase
         App::i()->em->clear();
     }
 
+    /** Envios do histórico, em ordem de criação. */
+    protected function envios(string $where = '1=1'): array
+    {
+        return $this->conn()->fetchAllAssociative("SELECT * FROM govbr_satisfaction_dispatch WHERE {$where} ORDER BY id");
+    }
+
+    /** Tentativas do histórico, em ordem de gravação. */
+    protected function tentativas(): array
+    {
+        return $this->conn()->fetchAllAssociative('SELECT * FROM govbr_satisfaction_attempt ORDER BY id');
+    }
+
+    protected function ultimaTentativa(): array
+    {
+        $tentativas = $this->tentativas();
+
+        $this->assertNotEmpty($tentativas, 'nenhuma tentativa gravada');
+
+        return end($tentativas);
+    }
+
     /** Transporte que devolve sempre o mesmo desfecho e conta as chamadas. */
     protected function clienteQueDevolve(\GovBrSatisfaction\Bsc\Result $resultado): \GovBrSatisfaction\Bsc\Client
     {

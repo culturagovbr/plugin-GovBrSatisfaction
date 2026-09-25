@@ -73,11 +73,29 @@ class HttpClient implements Client
 
     private function post(array $payload, string $token): Result
     {
+        $url = "{$this->baseUrl}/api/avaliacao/completa";
+        $headers = [];
+        $sentAt = new \DateTime();
+
         $ch = curl_init();
 
         curl_setopt_array($ch, [
-            CURLOPT_URL => "{$this->baseUrl}/api/avaliacao/completa",
+            CURLOPT_URL => $url,
             CURLOPT_POST => true,
+            CURLOPT_HEADERFUNCTION => function ($ch, string $raw) use (&$headers) {
+                $line = trim($raw);
+
+                // Guarda só o último bloco de cabeçalhos.
+                if (str_starts_with($line, 'HTTP/')) {
+                    $headers = [];
+                }
+
+                if ($line !== '') {
+                    $headers[] = $line;
+                }
+
+                return strlen($raw);
+            },
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => $this->connectTimeout,
             CURLOPT_TIMEOUT => $this->timeout,
@@ -92,9 +110,11 @@ class HttpClient implements Client
         $errno = curl_errno($ch);
         $error = curl_error($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $duration = (int) round(curl_getinfo($ch, CURLINFO_TOTAL_TIME) * 1000);
         curl_close($ch);
 
-        return self::interpret($status, $body, $errno, $error);
+        return self::interpret($status, $body, $errno, $error)
+            ->withExchange(new Exchange('POST', $url, $sentAt, $duration, $headers ?: null));
     }
 
     /**

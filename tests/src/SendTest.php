@@ -46,7 +46,7 @@ class SendTest extends TestCase
         $this->assertNull($linha['send_timestamp'], 'recusa ficou com carimbo de envio');
         $this->assertSame(400, (int) $linha['send_http_status']);
         $this->assertSame('Parâmetro(s) de entrada inválido(s)', $linha['send_detail']);
-        $this->assertSame(self::CORPO_RECUSA, $linha['send_response']);
+        $this->assertSame(self::CORPO_RECUSA, $this->ultimaTentativa()['response']);
     }
 
     function testDepoisDeVoltarAPendenteAProximaVarreduraEnvia()
@@ -133,7 +133,7 @@ class SendTest extends TestCase
 
         $this->processarEnvios();
 
-        $enviado = json_decode($this->solicitacoes()[0]['send_payload'], true);
+        $enviado = json_decode($this->ultimaTentativa()['payload'], true);
 
         $this->assertSame('10.0.***.***', $enviado['ipOrigem']);
         $this->assertNotEmpty($enviado['ipUsuario'], 'ipUsuario é obrigatório no contrato');
@@ -170,16 +170,17 @@ class SendTest extends TestCase
         $this->publicarEspaco();
         $espaco = $this->servico('espaco');
 
-        // BSC fora só para o espaço: o job dele se reagenda com failures = 1
+        // BSC fora só para o espaço: o job dele se reagenda
         $this->configurar(['client' => $this->clienteQueDecide(fn(array $payload) => $payload['servico'] === $espaco
             ? new Result(Outcome::Retry, 503, 'no healthy upstream')
             : new Result(Outcome::Sent, 200, null, '{"emailEnviado":true}')
         )]);
         $this->processarEnvios();
 
+        $idEspaco = (int) $this->solicitacoes("servico = '{$espaco}'")[0]['id'];
         $jobEspaco = $this->conn()->fetchAssociative(
             "SELECT metadata, create_timestamp, next_execution_timestamp FROM job WHERE name = ? AND metadata::text LIKE ?",
-            ['govbr-satisfaction-send', '%"failures":1%']
+            ['govbr-satisfaction-send', "%\"request_id\":{$idEspaco},%"]
         );
         $this->assertNotFalse($jobEspaco, 'o job da linha presa deveria ter sido reagendado');
         $this->assertGreaterThan($jobEspaco['create_timestamp'], $jobEspaco['next_execution_timestamp'], 'o reagendamento deveria ser para depois');
@@ -211,11 +212,11 @@ class SendTest extends TestCase
     }
 
     /**
-     * Transporte fora não consome tentativas.
+     * Queda do transporte consome tentativas até recusar.
      *
      * @dataProvider falhasDeTransporte
      */
-    function testQuedaDoTransporteNaoConsomeTentativas(?int $status, string $detalhe)
+    function testQuedaDoTransporteConsomeTentativas(?int $status, string $detalhe)
     {
         $this->publicarEspaco();
         $this->configurar(['client' => $this->clienteQueDevolve(new Result(Outcome::Retry, $status, $detalhe))]);
@@ -226,8 +227,8 @@ class SendTest extends TestCase
 
         $linha = $this->solicitacoes()[0];
 
-        $this->assertSituacao('pendente', $linha, "queda do transporte ({$detalhe}) virou recusa");
-        $this->assertSame(0, (int) $linha['send_attempts'], 'falha de transporte consumiu tentativa');
+        $this->assertSituacao('recusado', $linha, "queda do transporte ({$detalhe}) retentou sem limite");
+        $this->assertSame(SatisfactionSender::MAX_ATTEMPTS, (int) $linha['send_attempts']);
     }
 
     public static function falhasDeTransporte(): array
@@ -278,7 +279,7 @@ class SendTest extends TestCase
         $this->assertSame('CPF *** inválido', $linha['send_detail']);
 
         foreach ([self::CPF, 'maria.silva', 'da Silva'] as $pessoal) {
-            $this->assertStringNotContainsString($pessoal, $linha['send_response'], "{$pessoal} gravado na resposta");
+            $this->assertStringNotContainsString($pessoal, $this->ultimaTentativa()['response'], "{$pessoal} gravado na resposta");
         }
     }
 
@@ -331,7 +332,7 @@ class SendTest extends TestCase
         $this->processarEnvios();
 
         $this->assertSame(2, $cliente->chamadas, 'cada solicitação deveria ter sido tentada');
-        $this->assertSame(2, $this->contar("send_status = 'pendente' AND send_attempts = 0"));
+        $this->assertSame(2, $this->contar("send_status = 'pendente' AND send_attempts = 1"));
 
         $reagendados = (int) $this->conn()->fetchOne(
             "SELECT count(*) FROM job WHERE name = ? AND next_execution_timestamp > create_timestamp",
@@ -357,5 +358,103 @@ class SendTest extends TestCase
 
         $this->processarEnvios();
         $this->assertSituacao('enviado', $this->solicitacoes()[0]);
+    }
+
+    /** O envio automático abre um envio com a tentativa simulada da fixture. */
+    function testEnvioGravaOEnvioEATentativa()
+    {
+        $this->publicarEspaco();
+        $this->processarEnvios();
+
+        $envios = $this->envios();
+
+        $this->assertCount(1, $envios);
+        $this->assertSame('registro', $envios[0]['origin']);
+        $this->assertSame('enviado', $envios[0]['state']);
+        $this->assertNull($envios[0]['user_id']);
+        $this->assertNotNull($envios[0]['finish_timestamp']);
+
+        $tentativa = $this->ultimaTentativa();
+
+        $this->assertSame((int) $envios[0]['id'], (int) $tentativa['dispatch_id']);
+        $this->assertSame('simulado', $tentativa['outcome']);
+        $this->assertSame([1, 3], [(int) $tentativa['number'], (int) $tentativa['max_attempts']]);
+        $this->assertSame('POST', $tentativa['method']);
+        $this->assertSame(\GovBrSatisfaction\Bsc\FixtureClient::ENDPOINT, $tentativa['endpoint']);
+        $this->assertSame(200, (int) $tentativa['http_status']);
+        $this->assertStringNotContainsString(self::CPF, $tentativa['payload']);
+    }
+
+    /** Cada falha é uma tentativa do mesmo envio, até o limite. */
+    function testCadaFalhaViraTentativaDoMesmoEnvio()
+    {
+        $this->publicarEspaco();
+        $this->configurar(['client' => $this->clienteQueDevolve(new Result(Outcome::Retry, 503, 'no healthy upstream'))]);
+
+        for ($i = 0; $i < SatisfactionSender::MAX_ATTEMPTS; $i++) {
+            $this->processarEnvios();
+        }
+
+        $envios = $this->envios();
+
+        $this->assertCount(1, $envios);
+        $this->assertSame('recusado', $envios[0]['state']);
+        $this->assertSame([1, 2, 3], array_map(fn($t) => (int) $t['number'], $this->tentativas()));
+        $this->assertSame(['retentar'], array_values(array_unique(array_column($this->tentativas(), 'outcome'))));
+    }
+
+    /** A espera cresce: 1 minuto depois da primeira falha, 10 depois da segunda. */
+    function testEsperaCresceEntreAsTentativas()
+    {
+        $this->publicarEspaco();
+        $this->configurar(['client' => $this->clienteQueDevolve(new Result(Outcome::Retry, 500, 'Erro interno'))]);
+
+        foreach ([60, 600] as $segundos) {
+            $this->processarEnvios();
+
+            $job = $this->conn()->fetchAssociative(
+                'SELECT create_timestamp, next_execution_timestamp FROM job WHERE name = ?',
+                ['govbr-satisfaction-send']
+            );
+            $espera = (new \DateTime($job['next_execution_timestamp']))->getTimestamp()
+                - (new \DateTime($job['create_timestamp']))->getTimestamp();
+
+            $this->assertEqualsWithDelta($segundos, $espera, 5);
+        }
+    }
+
+    function testSemCpfEncerraOEnvioSemTentativa()
+    {
+        $semCpf = $this->userDirector->createUser();
+        $this->login($semCpf);
+        $this->publicar($this->spaceDirector()->createSpace($semCpf->profile));
+        $this->processarEnvios();
+
+        $this->assertSame('sem-cpf', $this->envios()[0]['state']);
+        $this->assertSame([], $this->tentativas());
+    }
+
+    /** Falha ao gravar o histórico não muda o envio. */
+    function testFalhaNoHistoricoNaoImpedeOEnvio()
+    {
+        $this->publicarEspaco();
+
+        $historico = new class extends \GovBrSatisfaction\Services\DispatchLog {
+            public function recordAttempt(\GovBrSatisfaction\Entities\SatisfactionDispatch $dispatch, int $number, int $maxAttempts, string $outcome, ...$resto): \GovBrSatisfaction\Entities\SatisfactionAttempt
+            {
+                throw new \RuntimeException('tabela indisponível');
+            }
+        };
+
+        $app = App::i();
+        $solicitacao = $app->repo(\GovBrSatisfaction\Entities\SatisfactionRequest::class)->find((int) $this->solicitacoes()[0]['id']);
+        $sender = new SatisfactionSender($this->plugin(), $historico);
+
+        $app->disableAccessControl();
+        $sender->send($solicitacao, $this->clienteQueDevolve(new Result(Outcome::Sent, 200, 'protocolo X', '{}')));
+        $app->enableAccessControl();
+
+        $this->assertSituacao('enviado', $this->solicitacoes()[0]);
+        $this->assertSame([], $this->tentativas());
     }
 }

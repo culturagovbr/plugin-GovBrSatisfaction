@@ -65,6 +65,8 @@ class MaskTest extends TestCase
             'e-mail' => ['email maria.silva@example.com inválido', 'email *** inválido'],
             'dentro de json' => ['{"detail":"cpf 77689062768","email":"a@b.com"}', '{"detail":"cpf ***","email":"***"}'],
             'protocolo com cpf' => ['protocolo 77689062768ABC', 'protocolo ***ABC'],
+            'token bearer' => ['{"authorization":"Bearer abc.def-123"}', '{"authorization":"Bearer ***"}'],
+            'bearer já mascarado' => ['Bearer ***', 'Bearer ***'],
             'sem dado pessoal' => ['no healthy upstream', 'no healthy upstream'],
             'número curto fica' => ['HTTP 500 codigoErro 1790278898', 'HTTP 500 codigoErro 1790278898'],
         ];

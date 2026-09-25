@@ -55,7 +55,7 @@ return [
     'tentarAgoraTitulo' => i::__('Tentar agora?'),
     'tentarAgoraConfirmacao' => i::__('O Mapa tenta enviar agora, sem esperar o intervalo de retentativa.'),
     'tentarAgoraFeito' => i::__('Nova tentativa de envio iniciada.'),
-    'tentativas' => i::__('%s resposta(s) 500 do BSC antes da recusa'),
+    'tentativas' => i::__('%s tentativa(s) sem sucesso antes da recusa'),
 
     'respostaTitulo' => i::__('Resposta do BSC'),
     'ultimaRespostaTitulo' => i::__('Última resposta do BSC'),

@@ -102,6 +102,32 @@ class HttpTransportTest extends TestCase
         $this->assertStringStartsWith('application/json', $eco['contentType']);
     }
 
+    /** A troca vem junto: método, endpoint, duração e cabeçalhos da resposta. */
+    function testDevolveARequisicaoParaOHistorico()
+    {
+        $r = $this->client('ok')->send(self::PAYLOAD);
+
+        $this->assertNotNull($r->exchange);
+        $this->assertSame('POST', $r->exchange->method);
+        $this->assertSame(self::$base . '/ok/api/avaliacao/completa', $r->exchange->endpoint);
+        $this->assertFalse($r->exchange->simulated);
+        $this->assertGreaterThanOrEqual(0, $r->exchange->durationMs);
+        $this->assertStringStartsWith('HTTP/1.1 200', $r->exchange->responseHeaders[0]);
+
+        foreach ($r->exchange->responseHeaders as $linha) {
+            $this->assertStringNotContainsStringIgnoringCase('authorization', $linha, 'cabeçalho da requisição no histórico');
+        }
+    }
+
+    /** Resposta lenta: a duração acompanha. */
+    function testDuracaoMedeARequisicao()
+    {
+        $r = $this->client('lento', timeout: 1)->send(self::PAYLOAD);
+
+        $this->assertSame(Outcome::Retry, $r->outcome);
+        $this->assertGreaterThanOrEqual(900, $r->exchange->durationMs);
+    }
+
     /** Token expirado: renova e refaz o POST. */
     function testRenovaOTokenExpiradoERefazOPost()
     {

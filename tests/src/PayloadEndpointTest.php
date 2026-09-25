@@ -80,7 +80,11 @@ class PayloadEndpointTest extends TestCase
         $this->publicarEspaco();
         $this->processarEnvios();
         $id = $this->idDaSolicitacao();
-        $this->alterarLinha($id, ['send_response' => '{"recebido":{"cpfCidadao":"77689062768","email":"maria.silva@example.com"}}']);
+        $this->conn()->executeStatement(
+            'UPDATE govbr_satisfaction_attempt SET response = ?',
+            ['{"recebido":{"cpfCidadao":"77689062768","email":"maria.silva@example.com"}}']
+        );
+        App::i()->em->clear();
 
         $this->login($this->userDirector->createUser('saasSuperAdmin'));
         $resposta = $this->conteudo($id)['resposta'];

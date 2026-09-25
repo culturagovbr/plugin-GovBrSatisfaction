@@ -5,6 +5,7 @@ namespace GovBrSatisfaction\Controllers;
 use GovBrSatisfaction\Bsc\Mask;
 use GovBrSatisfaction\Bsc\Payload;
 use GovBrSatisfaction\Entities\SatisfactionRequest;
+use GovBrSatisfaction\Services\DispatchLog;
 use MapasCulturais\App;
 
 /**
@@ -99,10 +100,11 @@ class Requests extends \MapasCulturais\Controller
 
         $plugin = $this->plugin();
 
-        $sent = $request->sendPayload ? json_decode($request->sendPayload, true) : null;
+        $attempt = (new DispatchLog())->lastAttempt($request->id);
+        $sent = $attempt?->payload ? json_decode($attempt->payload, true) : null;
 
         if (is_array($sent)) {
-            $this->respondContent($request, payload: $sent, preview: false);
+            $this->respondContent(payload: $sent, preview: false, response: $attempt->response);
 
             return;
         }
@@ -110,21 +112,21 @@ class Requests extends \MapasCulturais\Controller
         $cpf = Payload::cpf($request->user, $plugin->config['metadataFieldCPF']);
 
         if (!$cpf) {
-            $this->respondContent($request, payload: null, preview: true, reason: \MapasCulturais\i::__('Sem CPF no cadastro: não há conteúdo a enviar.'));
+            $this->respondContent(payload: null, preview: true, reason: \MapasCulturais\i::__('Sem CPF no cadastro: não há conteúdo a enviar.'));
 
             return;
         }
 
-        $this->respondContent($request, payload: Payload::build($request, $cpf), preview: true);
+        $this->respondContent(payload: Payload::build($request, $cpf), preview: true, response: $attempt?->response);
     }
 
-    protected function respondContent(SatisfactionRequest $request, ?array $payload, bool $preview, ?string $reason = null): void
+    protected function respondContent(?array $payload, bool $preview, ?string $reason = null, ?string $response = null): void
     {
         $this->json([
             'payload' => $payload === null ? null : Mask::forScreen($payload),
             'reconstruido' => $preview,
             'motivo' => $reason,
-            'resposta' => $request->sendResponse === null ? null : Mask::forBody($request->sendResponse),
+            'resposta' => $response === null ? null : Mask::forBody($response),
         ]);
     }
 

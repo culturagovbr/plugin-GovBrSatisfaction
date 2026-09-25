@@ -12,9 +12,6 @@ enum SendOutcome
     /** A linha saiu da fila: enviada, recusada, sem CPF ou descartada. */
     case Done;
 
-    /** 500 da aplicação: o job se reagenda em pouco tempo. */
-    case RetryRow;
-
-    /** Token, rede, gateway ou proxy falharam: o job se reagenda com espaçamento crescente. */
-    case RetryTransport;
+    /** Falhou e ainda há tentativa: o job se reagenda. */
+    case Retry;
 }
