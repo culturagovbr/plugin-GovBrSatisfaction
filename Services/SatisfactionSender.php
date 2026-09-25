@@ -14,8 +14,7 @@ use MapasCulturais\App;
 use MapasCulturais\Entities\User;
 
 /**
- * Envio de uma solicitação ao BSC. Uma por vez: lote, ordem e adiamento são
- * do job.
+ * Envio de uma solicitação ao BSC. Reagendamento é do job.
  *
  * @package GovBrSatisfaction
  */
@@ -28,12 +27,7 @@ class SatisfactionSender
     {
     }
 
-    /**
-     * Resolve uma solicitação pendente: descarta, marca sem CPF, ou envia.
-     *
-     * O cliente vem de fora para que a varredura use um só — o HttpClient
-     * guarda o token pela vida da instância.
-     */
+    /** Resolve uma pendente: descarta, marca sem CPF ou envia. */
     public function send(SatisfactionRequest $request, Client $client): SendOutcome
     {
         $app = App::i();
@@ -173,8 +167,7 @@ class SatisfactionSender
             $app->enableAccessControl();
         }
 
-        // Sem `replace`, como no gatilho: mantém o adiamento se houver.
-        $app->enqueueJob(SendSatisfactionRequestJob::SLUG, []);
+        SendSatisfactionRequestJob::enqueue($request);
     }
 
     /** Só 500 conta como tentativa. */

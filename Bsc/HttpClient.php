@@ -31,10 +31,7 @@ class HttpClient implements Client
 
     private readonly string $baseUrl;
 
-    /**
-     * Guardado pela vida da instância (uma varredura). A validade não é
-     * conhecida: 401 com token reutilizado é tratado como expiração.
-     */
+    /** Token da instância; 401 com token reutilizado renova uma vez. */
     private ?string $token = null;
 
     public function __construct(

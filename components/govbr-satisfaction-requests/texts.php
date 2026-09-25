@@ -35,9 +35,9 @@ return [
 
     'devolver' => i::__('Devolver à fila'),
     'devolverTitulo' => i::__('Devolver à fila?'),
-    'devolverConfirmacao' => i::__('A solicitação volta a pendente e o Mapa tenta enviar de novo na próxima varredura. Se o BSC aceitar, o cidadão recebe o e-mail do gov.br.'),
-    'devolverConfirmacaoSemCpf' => i::__('O CPF é lido de novo do cadastro. Se a pessoa já o preencheu, o envio acontece na próxima varredura; senão, a solicitação volta a "Sem CPF".'),
-    'devolvido' => i::__('Solicitação devolvida à fila. O próximo envio acontece na próxima varredura.'),
+    'devolverConfirmacao' => i::__('A solicitação volta a pendente e o Mapa tenta enviar de novo em seguida. Se o BSC aceitar, o cidadão recebe o e-mail do gov.br.'),
+    'devolverConfirmacaoSemCpf' => i::__('O CPF é lido de novo do cadastro. Se a pessoa já o preencheu, o envio acontece em seguida; senão, a solicitação volta a "Sem CPF".'),
+    'devolvido' => i::__('Solicitação devolvida à fila. O envio acontece em seguida.'),
     'devolverErro' => i::__('Não foi possível devolver a solicitação à fila.'),
     'tentativas' => i::__('%s resposta(s) 500 do BSC antes da recusa'),
 

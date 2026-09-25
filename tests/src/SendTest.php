@@ -139,38 +139,57 @@ class SendTest extends TestCase
         $this->assertNotEmpty($enviado['ipUsuario'], 'ipUsuario é obrigatório no contrato');
     }
 
-    /**
-     * Publicar durante uma queda do BSC não anula o adiamento: o gatilho
-     * enfileira sem `replace`.
-     */
-    function testPublicarDuranteQuedaNaoAnulaOAdiamento()
+    /** Um job por solicitação, para agora. */
+    function testCadaSolicitacaoTemOProprioJob()
     {
         $this->publicarEspaco();
-        $this->configurar(['client' => $this->clienteQueDevolve(new Result(Outcome::Retry, 503, 'no healthy upstream'))]);
-
-        // a varredura falha e se adia com falhas = 1
-        $this->processarEnvios();
-
-        // outra publicação durante a queda
-        $this->publicar($this->projectDirector->createProject($this->perfilAtual()));
+        $this->publicar($this->projectDirector->createProject($this->cidadao->profile));
         App::i()->em->flush();
 
+        $ids = array_column($this->solicitacoes(), 'id');
         $jobs = $this->conn()->fetchAllAssociative(
-            'SELECT metadata, create_timestamp, next_execution_timestamp FROM job WHERE name = ?',
+            'SELECT metadata, next_execution_timestamp, create_timestamp FROM job WHERE name = ?',
             ['govbr-satisfaction-send']
         );
 
-        $this->assertCount(1, $jobs, 'a publicação enfileirou uma segunda varredura');
+        $this->assertCount(2, $jobs, 'deveria haver um job por solicitação');
 
-        $job = $jobs[0];
-        $metadata = json_decode((string) $job['metadata'], true);
+        $agendados = array_map(fn($j) => (string) json_decode($j['metadata'], true)['request_id'], $jobs);
+        sort($ids);
+        sort($agendados);
+        $this->assertSame(array_map('strval', $ids), $agendados);
 
-        $this->assertSame(1, $metadata['failures'] ?? null, 'a publicação anulou a contagem de falhas da varredura');
-        $this->assertGreaterThan(
-            $job['create_timestamp'],
-            $job['next_execution_timestamp'],
-            'a publicação puxou a varredura adiada de volta para agora'
+        foreach ($jobs as $job) {
+            $this->assertLessThanOrEqual($job['create_timestamp'], $job['next_execution_timestamp'], 'job novo deveria ser para agora');
+        }
+    }
+
+    /** Publicação durante uma queda é tentada na hora. */
+    function testPublicarDuranteQuedaNaoEsperaOJobAdiado()
+    {
+        $this->publicarEspaco();
+        $espaco = $this->servico('espaco');
+
+        // BSC fora só para o espaço: o job dele se reagenda com failures = 1
+        $this->configurar(['client' => $this->clienteQueDecide(fn(array $payload) => $payload['servico'] === $espaco
+            ? new Result(Outcome::Retry, 503, 'no healthy upstream')
+            : new Result(Outcome::Sent, 200, null, '{"emailEnviado":true}')
+        )]);
+        $this->processarEnvios();
+
+        $jobEspaco = $this->conn()->fetchAssociative(
+            "SELECT metadata, create_timestamp, next_execution_timestamp FROM job WHERE name = ? AND metadata::text LIKE ?",
+            ['govbr-satisfaction-send', '%"failures":1%']
         );
+        $this->assertNotFalse($jobEspaco, 'o job da linha presa deveria ter sido reagendado');
+        $this->assertGreaterThan($jobEspaco['create_timestamp'], $jobEspaco['next_execution_timestamp'], 'o reagendamento deveria ser para depois');
+
+        // publicação nova durante a queda: enviada na hora
+        $this->publicar($this->projectDirector->createProject($this->perfilAtual()));
+        $this->processarEnvios();
+
+        $this->assertSituacao('enviado', $this->solicitacoes("servico = '{$this->servico('projeto')}'")[0], 'a publicação nova esperou o job adiado');
+        $this->assertSituacao('pendente', $this->solicitacoes("servico = '{$espaco}'")[0]);
     }
 
     /** Retentativa tem teto. */
@@ -273,10 +292,8 @@ class SendTest extends TestCase
         $this->assertSituacao('enviado', $linhaProjeto, 'o 500 de outra linha travou esta');
     }
 
-    /**
-     * Já o transporte fora do ar para a varredura na primeira linha.
-     */
-    function testQuedaDoTransporteParaAVarredura()
+    /** Transporte fora: cada job se reagenda. */
+    function testQuedaDoTransporteReagendaCadaJob()
     {
         $this->publicarEspaco();
         $this->publicar($this->projectDirector->createProject($this->cidadao->profile));
@@ -286,7 +303,32 @@ class SendTest extends TestCase
         $this->configurar(['client' => $cliente]);
         $this->processarEnvios();
 
-        $this->assertSame(1, $cliente->chamadas, 'a varredura seguiu depois de o transporte falhar');
-        $this->assertSame(2, $this->contar("send_status = 'pendente'"));
+        $this->assertSame(2, $cliente->chamadas, 'cada solicitação deveria ter sido tentada');
+        $this->assertSame(2, $this->contar("send_status = 'pendente' AND send_attempts = 0"));
+
+        $reagendados = (int) $this->conn()->fetchOne(
+            "SELECT count(*) FROM job WHERE name = ? AND next_execution_timestamp > create_timestamp",
+            ['govbr-satisfaction-send']
+        );
+        $this->assertSame(2, $reagendados, 'os dois jobs deveriam estar reagendados para depois');
+    }
+
+    /** Job sem request_id distribui um job por pendente. */
+    function testJobAntigoDistribuiUmJobPorPendente()
+    {
+        $this->publicarEspaco();
+        $this->conn()->executeStatement('DELETE FROM job WHERE name = ?', ['govbr-satisfaction-send']);
+
+        App::i()->enqueueJob(\GovBrSatisfaction\Jobs\SendSatisfactionRequestJob::SLUG, []);
+
+        // primeira rodada: o job antigo distribui; segunda: o job da linha envia
+        $this->processarEnvios();
+        $this->assertSame(1, (int) $this->conn()->fetchOne(
+            "SELECT count(*) FROM job WHERE name = ? AND metadata::text LIKE '%request_id%'",
+            ['govbr-satisfaction-send']
+        ), 'o job antigo deveria ter gerado um job para a pendente');
+
+        $this->processarEnvios();
+        $this->assertSituacao('enviado', $this->solicitacoes()[0]);
     }
 }

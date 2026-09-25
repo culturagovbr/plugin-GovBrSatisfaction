@@ -161,10 +161,8 @@ class SatisfactionRegistry
             $app->enableAccessControl();
         }
 
-        // Id constante: garante uma varredura na fila, sem empilhar. Sem
-        // `replace` para não anular o adiamento marcado pelo job durante uma
-        // queda do BSC.
-        $app->enqueueJob(SendSatisfactionRequestJob::SLUG, []);
+        // Um job por solicitação, para agora.
+        SendSatisfactionRequestJob::enqueue($request);
     }
 
     /** IP da requisição, ou nulo. */

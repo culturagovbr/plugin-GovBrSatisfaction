@@ -283,12 +283,19 @@ abstract class TestCase extends \Tests\Abstract\TestCase
 
         $app->em->flush();
 
-        $this->conn()->executeStatement('UPDATE job SET subsite_id = NULL');
+        $existentes = (int) $this->conn()->fetchOne('SELECT count(*) FROM job');
 
-        // senão o EntityManager devolveria o job em memória, com o vínculo antigo
-        $app->em->clear();
+        if ($existentes === 0) {
+            return;
+        }
 
-        $this->processJobs();
+        for ($i = 0; $i < $existentes; $i++) {
+            $this->conn()->executeStatement('UPDATE job SET subsite_id = NULL');
+
+            $app->em->clear();
+
+            $this->processJobs(number_of_jobs: 1);
+        }
     }
 
     protected function assertSituacao(string $esperada, array $linha, string $mensagem = ''): void
