@@ -54,6 +54,21 @@ class RequeueTest extends TestCase
         $this->assertSituacao('recusado', $this->solicitacoes()[0]);
     }
 
+    /** Formulário de outro site não devolve à fila. */
+    function testPedidoForaDaTelaNaoDevolve()
+    {
+        $id = $this->recusada();
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+
+        $app = App::i();
+        $app->reset();
+        $app->run($this->requestFactory->POST('govbr-satisfaction-requests', 'requeue', [], ['id' => $id], ajax: false), false);
+
+        $this->assertSame(400, $app->response->getStatusCode());
+        $this->assertSituacao('recusado', $this->solicitacoes()[0]);
+        $this->assertSame([], $this->envios());
+    }
+
     function testAdministradorDevolveEZeraAsTentativas()
     {
         $id = $this->recusada();

@@ -247,6 +247,7 @@ class Requests extends \MapasCulturais\Controller
     public function POST_unlockReveal()
     {
         $this->requireInstallationAdmin();
+        $this->requireScreenRequest();
 
         $app = App::i();
         $reveal = new PayloadReveal($this->plugin());
@@ -280,6 +281,7 @@ class Requests extends \MapasCulturais\Controller
     public function POST_reveal()
     {
         $this->requireInstallationAdmin();
+        $this->requireScreenRequest();
 
         $app = App::i();
         $plugin = $this->plugin();
@@ -370,6 +372,7 @@ class Requests extends \MapasCulturais\Controller
     public function POST_requeue()
     {
         $this->requireInstallationAdmin();
+        $this->requireScreenRequest();
 
         $app = App::i();
 
@@ -413,6 +416,7 @@ class Requests extends \MapasCulturais\Controller
     public function POST_requeueAll()
     {
         $this->requireInstallationAdmin();
+        $this->requireScreenRequest();
 
         $app = App::i();
 
@@ -454,6 +458,7 @@ class Requests extends \MapasCulturais\Controller
     public function POST_requeueSelected()
     {
         $this->requireInstallationAdmin();
+        $this->requireScreenRequest();
 
         $app = App::i();
 
@@ -587,6 +592,17 @@ class Requests extends \MapasCulturais\Controller
             'detalhe' => $record['sendDetail'] === null ? null : Mask::forLogText($record['sendDetail']),
             'tentativas' => (int) $record['sendAttempts'],
         ];
+    }
+
+    /** Pedido feito pela tela: JSON ou XMLHttpRequest. */
+    protected function requireScreenRequest(): void
+    {
+        $request = App::i()->request;
+        $contentType = strtolower((string) $request->getHeaderLine('Content-Type'));
+
+        if ($request->getHeaderLine('X-Requested-With') !== 'XMLHttpRequest' && !str_starts_with($contentType, 'application/json')) {
+            $this->json(['error' => \MapasCulturais\i::__('Pedido inválido.')], 400);
+        }
     }
 
     /** Admin da instalação, plugin ligado e portal atendido. */
