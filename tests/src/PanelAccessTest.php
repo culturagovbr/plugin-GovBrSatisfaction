@@ -103,4 +103,45 @@ class PanelAccessTest extends TestCase
 
         $this->assertSame(503, $this->consultar('index'));
     }
+
+    /** POST de formulário comum, sem o cabeçalho que a tela envia. */
+    protected function escrever(string $acao, array $dados, array $cabecalhos = []): int
+    {
+        $app = App::i();
+        $app->reset();
+        $app->run($this->requestFactory->POST('govbr-satisfaction-requests', $acao, [], $dados, headers: $cabecalhos, ajax: false), false);
+
+        return $app->response->getStatusCode();
+    }
+
+    /**
+     * Escrita que não vem da tela é recusada.
+     *
+     * @dataProvider endpointsDeEscrita
+     */
+    function testEscritaForaDaTelaEhRecusada(string $acao)
+    {
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+
+        $this->assertSame(400, $this->escrever($acao, ['id' => 1, 'ids' => [1], 'tentativa' => 1, 'motivo' => 'motivo de teste']));
+    }
+
+    public static function endpointsDeEscrita(): array
+    {
+        return [
+            'requeue' => ['requeue'],
+            'requeueAll' => ['requeueAll'],
+            'requeueSelected' => ['requeueSelected'],
+            'unlockReveal' => ['unlockReveal'],
+            'reveal' => ['reveal'],
+        ];
+    }
+
+    /** JSON com charset é pedido da tela. */
+    function testEscritaEmJsonComCharsetPassa()
+    {
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+
+        $this->assertSame(404, $this->escrever('requeue', ['id' => 999999999], ['Content-Type' => 'application/json; charset=utf-8']));
+    }
 }
