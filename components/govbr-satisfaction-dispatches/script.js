@@ -19,7 +19,7 @@ app.component('govbr-satisfaction-dispatches', {
         },
 
         // muda a cada leitura do monitoramento em tempo real
-        tick: {
+        leitura: {
             type: Number,
             default: 0,
         },
@@ -36,9 +36,9 @@ app.component('govbr-satisfaction-dispatches', {
         const messages = useMessages();
 
         // substitui cada `%s` do texto pelo próximo argumento
-        const fmt = (chave, ...valores) => valores.reduce((s, v) => s.replace('%s', v), text(chave));
+        const formatar = (chave, ...valores) => valores.reduce((s, v) => s.replace('%s', v), text(chave));
 
-        return { text, fmt, messages };
+        return { text, formatar, messages };
     },
 
     data() {
@@ -84,7 +84,7 @@ app.component('govbr-satisfaction-dispatches', {
     },
 
     watch: {
-        tick() {
+        leitura() {
             this.atualizar();
         },
     },

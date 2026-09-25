@@ -18,7 +18,7 @@ $this->import('
     <!-- motivo que abre a janela de revelação -->
     <mc-modal ref="motivo" classes="govbr-dispatches__modal" :title="text('motivoTitulo')" @close="pendente = null">
         <template #default>
-            <p class="govbr-dispatches__nota">{{ fmt('motivoExplicacao', janelaMinutos) }}</p>
+            <p class="govbr-dispatches__nota">{{ formatar('motivoExplicacao', janelaMinutos) }}</p>
             <div class="field">
                 <label :for="'govbr-dispatches-motivo-' + requestId">{{ text('motivo') }}</label>
                 <textarea
@@ -32,7 +32,7 @@ $this->import('
                     :id="'govbr-dispatches-motivo-contagem-' + requestId"
                     class="govbr-dispatches__contagem"
                     :class="{'govbr-dispatches__contagem--ok': motivoCompleto}">
-                    {{ fmt('motivoContagem', motivo.trim().length, revelacao.motivoMinimo) }}
+                    {{ formatar('motivoContagem', motivo.trim().length, revelacao.motivoMinimo) }}
                 </small>
             </div>
         </template>
@@ -44,14 +44,14 @@ $this->import('
                 class="button button--primary button--md"
                 :disabled="liberando || !motivoCompleto"
                 @click="liberar(modal)">
-                {{ fmt('liberar', janelaMinutos) }}
+                {{ formatar('liberar', janelaMinutos) }}
             </button>
         </template>
     </mc-modal>
 
     <p class="govbr-dispatches__janela" v-if="restante > 0" role="status">
         <mc-icon name="govbr-satisfaction-reveal"></mc-icon>
-        {{ fmt('janelaAberta', relogio, restantes) }}
+        {{ formatar('janelaAberta', relogio, restantes) }}
     </p>
 
     <template v-if="!carregando">
@@ -93,7 +93,7 @@ $this->import('
                             <code class="govbr-dispatches__uuid">{{ envio.uuid }}</code>
                             <small class="govbr-dispatches__muted">{{ data(envio.criadoEm) }}</small>
                             <small class="govbr-dispatches__muted">{{ text('origem-' + envio.origem) }}</small>
-                            <small class="govbr-dispatches__muted" v-if="envio.autor">{{ fmt('porUsuario', envio.autor.id) }}</small>
+                            <small class="govbr-dispatches__muted" v-if="envio.autor">{{ formatar('porUsuario', envio.autor.id) }}</small>
                         </span>
                     </template>
 
@@ -115,9 +115,9 @@ $this->import('
                                         :title="rotulo(tentativa.situacao)"
                                         :aria-label="rotulo(tentativa.situacao)"
                                     ></mc-icon>
-                                    <strong>{{ fmt('tentativa', tentativa.numero, tentativa.maximo) }}</strong>
+                                    <strong>{{ formatar('tentativa', tentativa.numero, tentativa.maximo) }}</strong>
                                     <small v-if="tentativa.httpStatus">HTTP {{ tentativa.httpStatus }}</small>
-                                    <small v-if="tentativa.duracaoMs !== null">{{ fmt('duracao', tentativa.duracaoMs) }}</small>
+                                    <small v-if="tentativa.duracaoMs !== null">{{ formatar('duracao', tentativa.duracaoMs) }}</small>
                                 </span>
                             </template>
 
@@ -146,7 +146,7 @@ $this->import('
                                     <template #content>
                                         <div class="govbr-dispatches__revelar" v-if="podeRevelar(tentativa)">
                                             <template v-if="revelados[tentativa.id]">
-                                                <span class="govbr-dispatches__aviso">{{ fmt('dadosReais', relogio) }}</span>
+                                                <span class="govbr-dispatches__aviso">{{ formatar('dadosReais', relogio) }}</span>
                                                 <button type="button" class="button button--text button--sm" @click="ocultar(tentativa)">
                                                     {{ text('ocultar') }}
                                                 </button>

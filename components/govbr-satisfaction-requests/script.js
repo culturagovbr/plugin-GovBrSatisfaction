@@ -1,5 +1,5 @@
 // intervalo das leituras no monitoramento em tempo real
-const GOVBR_SATISFACTION_MONITOR_INTERVAL = 5000;
+const GOVBR_SATISFACTION_INTERVALO_MONITOR = 5000;
 
 app.component('govbr-satisfaction-requests', {
     template: $TEMPLATES['govbr-satisfaction-requests'],
@@ -10,9 +10,9 @@ app.component('govbr-satisfaction-requests', {
         const messages = useMessages();
 
         // substitui cada `%s` do texto pelo próximo argumento
-        const fmt = (chave, ...valores) => valores.reduce((s, v) => s.replace('%s', v), text(chave));
+        const formatar = (chave, ...valores) => valores.reduce((s, v) => s.replace('%s', v), text(chave));
 
-        return { text, fmt, messages };
+        return { text, formatar, messages };
     },
 
     data() {
@@ -51,7 +51,7 @@ app.component('govbr-satisfaction-requests', {
             proximaLeitura: null,
             atualizadoEm: null,
             falhouAoAtualizar: false,
-            tick: 0,
+            leitura: 0,
         };
     },
 
@@ -193,7 +193,7 @@ app.component('govbr-satisfaction-requests', {
                 if (this.tempoReal) {
                     this.agendarLeitura();
                 }
-            }, GOVBR_SATISFACTION_MONITOR_INTERVAL);
+            }, GOVBR_SATISFACTION_INTERVALO_MONITOR);
         },
 
         cancelarLeitura() {
@@ -236,7 +236,7 @@ app.component('govbr-satisfaction-requests', {
                 this.totais = data.totais;
                 this.atualizadoEm = Date.now();
                 this.falhouAoAtualizar = false;
-                this.tick += 1;
+                this.leitura += 1;
             } catch (error) {
                 // um aviso por queda
                 if (geracao === this.geracao && !this.falhouAoAtualizar) {
@@ -320,10 +320,10 @@ app.component('govbr-satisfaction-requests', {
                 modal.close();
 
                 const ultima = this.duracao(Math.max(0, data.devolvidas - 1) * data.intervalo);
-                this.messages.success(this.fmt('devolverTodasFeito', data.devolvidas, ultima));
+                this.messages.success(this.formatar('devolverTodasFeito', data.devolvidas, ultima));
 
                 if (data.restantes > 0) {
-                    this.messages.alert(this.fmt('devolverTodasRestantes', data.restantes));
+                    this.messages.alert(this.formatar('devolverTodasRestantes', data.restantes));
                 }
 
                 this.filtrar();
@@ -421,10 +421,10 @@ app.component('govbr-satisfaction-requests', {
                 modal.close();
 
                 const ultima = this.duracao(Math.max(0, data.devolvidas - 1) * data.intervalo);
-                this.messages.success(this.fmt('devolverTodasFeito', data.devolvidas, ultima));
+                this.messages.success(this.formatar('devolverTodasFeito', data.devolvidas, ultima));
 
                 if (data.ignoradas > 0) {
-                    this.messages.alert(this.fmt('devolverSelecionadasIgnoradas', data.ignoradas));
+                    this.messages.alert(this.formatar('devolverSelecionadasIgnoradas', data.ignoradas));
                 }
 
                 this.selecionados = {};
