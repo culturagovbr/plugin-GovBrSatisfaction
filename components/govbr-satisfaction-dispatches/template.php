@@ -51,7 +51,7 @@ $this->import('
 
     <p class="govbr-dispatches__janela" v-if="restante > 0" role="status">
         <mc-icon name="govbr-satisfaction-reveal"></mc-icon>
-        {{ fmt('janelaAberta', relogio) }}
+        {{ fmt('janelaAberta', relogio, restantes) }}
     </p>
 
     <template v-if="!carregando">

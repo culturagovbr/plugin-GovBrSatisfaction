@@ -43,7 +43,7 @@ return [
     'ocultar' => i::__('Ocultar'),
     'dadosReais' => i::__('Dados reais visíveis por mais %s.'),
     'dadosReaisRotulo' => i::__('Payload com os dados reais'),
-    'janelaAberta' => i::__('Revelação liberada por mais %s. Cada revelação fica registrada.'),
+    'janelaAberta' => i::__('Revelação liberada por mais %s, com %s revelação(ões) restante(s). Cada uma fica registrada.'),
     'motivoTitulo' => i::__('Por que revelar os dados reais?'),
     'motivoExplicacao' => i::__('O motivo fica registrado com seu usuário, a data e cada revelação ou cópia feita nos próximos %s minutos.'),
     'motivo' => i::__('Motivo'),
