@@ -2,53 +2,39 @@
 
 Integração da API de Avaliação de Satisfação com Serviços Públicos Digitais (gov.br, via BSC) aos seis serviços do Ministério da Cultura publicados no Portal de Serviços.
 
-Ao concluir um dos serviços, o Mapa grava uma solicitação e um job avisa o BSC, que envia ao cidadão um e-mail com o link do questionário. A avaliação acontece em site do gov.br: não há tela de avaliação nem pedido de consentimento aqui.
-
-> Faltam o ID do órgão no Portal de Serviços e os valores de homologação, pendentes com a equipe do BSC — até lá, só o modo de desenvolvimento é operável.
+Ao concluir um dos serviços, o Mapa grava uma solicitação e um job avisa o BSC, que envia ao cidadão um e-mail com o link do questionário. Não há tela de avaliação nem consentimento aqui, só o painel de consulta.
 
 ## Instalação
 
-Ative o plugin em `config/plugins.php`:
+Ative o plugin em `config/plugins.php` (a lista base precisa ser repetida por inteiro: a configuração é montada com `array_merge`):
 
 ```php
 'plugins' => ['MultipleLocalAuth', 'AdminLoginAsUser', 'RecreatePCacheOnLogin', 'SpamDetector', 'Security', 'GovBrSatisfaction']
 ```
 
-A lista base precisa ser repetida por inteiro: a configuração é montada com `array_merge`, que substitui a chave em vez de fundir os arrays.
-
-Depois, rode as atualizações de banco — criam a tabela `govbr_satisfaction_request` — e compile os assets:
-
-```bash
-pnpm run build
-```
-
-Sem os assets o painel aparece sem estilo.
-
-Para desligar sem remover, declare `enabled` na configuração do plugin, como fazem `Security` e `Metabase`.
+Para desligar sem remover, `enabled => false` na configuração do plugin.
 
 ## Serviços e gatilhos
 
 | Serviço | Entidade | Gatilho |
 | --- | --- | --- |
-| Cadastrar-se | User | Criação da conta |
-| Cadastrar coletivo | Agent | Publicação |
+| Cadastrar-se | User | Confirmação do e-mail |
+| Cadastrar coletivo | Agent | Publicação (agente individual não conta) |
 | Cadastrar oportunidade | Opportunity | Publicação |
 | Cadastrar evento cultural | Event | Publicação |
 | Cadastrar espaço cultural | Space | Publicação |
 | Cadastrar projeto cultural | Project | Publicação |
 
-Cada usuário avalia cada serviço uma única vez, garantido pelo índice único `(user_id, servico)`.
-
-Publicação em subsite diferente do configurado é descartada, não registrada.
+Publicação inclui "criar e publicar" numa etapa. Cada usuário avalia cada serviço uma única vez (índice único `(user_id, servico)`). Publicação em subsite diferente do configurado é descartada.
 
 ## Configuração
 
-Por variáveis de ambiente. O código não carrega nenhum valor como padrão, e **faltando qualquer uma, nada é registrado** — o painel aponta quais faltam.
+Por variáveis de ambiente. **Faltando qualquer uma, nada é registrado**; o painel aponta quais faltam.
 
 | Variável | Papel |
 | --- | --- |
-| `AVALIACAO_DEV_MODE` | `TRUE` ou `FALSE`. **Ausente equivale a `TRUE`** |
-| `AVALIACAO_BSC_URL` | Endereço do BSC no ambiente |
+| `AVALIACAO_DEV_MODE` | `TRUE` ou `FALSE`. **Ausente equivale a `TRUE`**: nenhuma requisição sai da máquina |
+| `AVALIACAO_BSC_URL` | Endereço do BSC **com o prefixo da API**, ex. `https://bsc.../avaliacoes` |
 | `AVALIACAO_ORGAO` | ID do MinC no Portal de Serviços |
 | `AVALIACAO_SUBSITE_ID` | ID do subsite do Mapa da Cultura **neste ambiente** (4 em homologação e produção) |
 | `AVALIACAO_SERVICO_CADASTRO` | ID do serviço "Cadastrar-se" |
@@ -58,75 +44,53 @@ Por variáveis de ambiente. O código não carrega nenhum valor como padrão, e 
 | `AVALIACAO_SERVICO_ESPACO` | ID do serviço "Cadastrar espaço cultural" |
 | `AVALIACAO_SERVICO_PROJETO` | ID do serviço "Cadastrar projeto cultural" |
 
-As credenciais do gateway são as `RCV_BSC_*` já existentes: a autenticação é a mesma da consulta de CNPJ do CulturaViva.
+As credenciais do gateway são as `RCV_BSC_*` já existentes (mesma autenticação da consulta de CNPJ).
 
-### Modo de desenvolvimento
+## Envio e retentativa
 
-Com `AVALIACAO_DEV_MODE=TRUE` a solicitação é registrada e o conteúdo é montado, mas **nenhuma requisição HTTP sai da máquina** — o payload carrega CPF, nome e e-mail de cidadão real.
+Cada solicitação tem o próprio job, enfileirado no gatilho para agora; em operação normal o envio acontece segundos depois da publicação. A linha fica `pendente` durante o POST e só vira `enviado` com a resposta; se o processo morrer no meio, a retentativa recebe "Avaliação já enviada" do BSC, que deduplica por CPF e serviço.
 
-É o padrão: sem a variável definida, nada é enviado. A exigência de configuração completa também só vale no modo real.
+Cada chamada ao BSC tem 10 s para conectar e 30 s no total. Quando o envio não conclui, o próprio job se reagenda:
+
+- **Transporte** (token, rede, 3xx, 502/503/504): `+1 min`, `+10 min`, depois `+30 min` enquanto durar. A linha não é penalizada.
+- **500 da aplicação**, ou exceção no cliente: conta uma tentativa e reagenda em `+1 min`. Após 3, a linha vira `recusado`.
+
+"Avaliação já enviada" (500) é envio. Em 2xx, `emailEnviado: false` também é envio (o e-mail conclui do lado deles) e fica registrado no detalhe.
 
 ## Painel
 
-Página **Satisfação gov.br**, sob Administração, restrita a `saasSuperAdmin` e visível apenas no subsite atendido. Somente leitura.
-
-Cada linha abre o conteúdo enviado, campo a campo. CPF, nome e e-mail aparecem mascarados e vêm do cadastro atual da pessoa — não são guardados na tabela, então se o cadastro mudou depois do envio, mostram o valor de hoje.
+Página **Satisfação gov.br**, sob Administração, restrita a `saasSuperAdmin` e existente só no subsite atendido (fora dele, página e endpoints respondem 404).
 
 | Situação | Significado |
 | --- | --- |
-| `pendente` | Registrada, ainda não processada pelo job |
+| `pendente` | Aguardando o job (segundos), ou o reagendamento se o BSC estiver fora |
 | `enviado` | O Mapa disparou. **Não** significa que o cidadão recebeu o e-mail |
+| `recusado` | O BSC recusou em definitivo, ou o teto de tentativas esgotou |
 | `sem-cpf` | Usuário sem CPF no cadastro; nada foi enviado |
 
-`pendente` dura segundos em operação normal — o intervalo até a próxima varredura. Vê-lo crescer significa fila de jobs parada.
+Cada linha abre o conteúdo enviado (mascarado) e a resposta do BSC. Ações, com confirmação e registro no log:
+
+- **Devolver à fila** (`recusado`, `sem-cpf`): zera as tentativas e volta a `pendente`; o CPF é relido do cadastro.
+- **Tentar agora** (`pendente` que já falhou): antecipa o job, sem zerar as tentativas.
+- **Devolver todas à fila** (filtro em `recusado`): as recusadas do filtro atual, até 500 por clique, com os jobs escalonados de 10 s para não virar rajada contra o BSC.
+
+## Dados pessoais
+
+A tabela não guarda CPF, nome nem e-mail por extenso: a cópia do envio em `send_payload` é gravada já mascarada (`776.***.***-68`, `m***@example.com`, `Maria ***`), e o log mascara o que ecoar do BSC. O vínculo com a pessoa é o `user_id`.
 
 ## Testes
 
-A suíte roda sobre a do repositório principal, com um arquivo de composição extra que ativa o plugin e define as variáveis de ambiente.
+A suíte roda sobre a do repositório principal, com o `tests/docker-compose.yml` deste plugin por cima (ele monta o plugin em `src/plugins/GovBrSatisfaction`, ativa-o e define as variáveis; os comentários do arquivo explicam cada linha). Nenhum teste toca `bsc.cultura.gov.br`.
 
-**Os comandos abaixo assumem `cwd = tests/` do repositório principal** — os caminhos relativos do override dependem disso.
+Com `cwd = tests/` do repositório principal:
 
 ```bash
-cd tests
-
-# suíte completa do plugin
 docker compose -f docker-compose.yml -f ../src/plugins/GovBrSatisfaction/tests/docker-compose.yml \
-  run --rm mapas pu /var/www/tests/GovBrSatisfaction
-
-# um arquivo
-docker compose -f docker-compose.yml -f ../src/plugins/GovBrSatisfaction/tests/docker-compose.yml \
-  run --rm mapas pu /var/www/tests/GovBrSatisfaction/TriggerTest.php
-
-# um método
-docker compose -f docker-compose.yml -f ../src/plugins/GovBrSatisfaction/tests/docker-compose.yml \
-  run --rm mapas pu /var/www/tests/GovBrSatisfaction/TriggerTest.php --filter "testPublicarEspacoRegistra"
+  run --rm mapas pu /var/www/tests/GovBrSatisfaction                          # suíte
+  run --rm mapas pu /var/www/tests/GovBrSatisfaction/TriggerTest.php          # um arquivo
+  run --rm mapas pu /var/www/tests/GovBrSatisfaction/TriggerTest.php --filter testPublicarEspacoRegistra
 ```
 
-Sem o `-f` do plugin, a suíte do repositório principal roda normalmente, sem este plugin.
-
-### O que o arquivo de composição faz
-
-| | Por quê |
-|---|---|
-| Monta a pasta do plugin | O bind resolve o caminho no host, então funciona mesmo quando o plugin vive fora do repositório do core. Um link simbólico sozinho não bastaria: dentro do container ele apontaria para um caminho inexistente |
-| Define as variáveis `AVALIACAO_*` | Sem elas o plugin não registra nada, e nenhum teste teria o que exercitar |
-| Força `AVALIACAO_DEV_MODE=TRUE` | É o padrão do plugin, mas explícito aqui para que nenhuma execução da suíte consiga falar com o BSC |
-| Monta `config.d` como `zz-govbr-satisfaction.d` | O prefixo faz o diretório ordenar depois de `config.d` no glob da configuração, ativando o plugin sem editar arquivos do core |
-| Monta `tests/src` em `/var/www/tests/GovBrSatisfaction` | O autoload `Tests\` resolve as classes daqui a partir dali |
-
-### Escrevendo testes
-
-Estenda `Tests\GovBrSatisfaction\TestCase`, não a base do core. Ela cria os dois subsites que as regras de portal exigem, restaura a configuração do plugin e limpa a tabela — sem isso um teste enxerga o que o anterior deixou.
-
-Três armadilhas que custaram caro:
-
-- **A configuração do plugin sobrevive entre testes** e os subsites não: o plugin é singleton da aplicação, os subsites são desfeitos pelo rollback. Um teste que esvazia uma variável deixaria os seguintes rodando com ela vazia.
-- **Publicar exige sessão.** Sem alguém logado, o core entra no caminho de pedido de troca de titularidade e falha antes de o gatilho ser alcançado. Use `publicar()`, que loga como o dono.
-- **`AgentDirector::createAgent()` ignora o tipo pedido** — todo agente sai como coletivo. Use `criarAgente()`, que atribui o tipo direto.
-
-## Armadilhas conhecidas
-
-- **O plugin precisa estar montado no container.** O compose de desenvolvimento monta cada plugin individualmente; sem a linha, a pasta não existe para a aplicação.
-- **Mudança na entidade não tem efeito até limpar o cache de metadados do Doctrine** (`/tmp/symfony-cache` dentro do container). Em deploy resolve sozinho, porque o container é recriado.
-- **`sendStatus`, e não `status`.** `MapasCulturais\Entity::setStatus()` é tipado como `int`; uma propriedade `status` de texto colide com ele.
-- **Os IPs são gravados no gatilho**, não no envio. O job roda em linha de comando, onde `REMOTE_ADDR` é o loopback definido pelo `execute-job.sh`.
+- Estenda `Tests\GovBrSatisfaction\TestCase`: cria os subsites, restaura a configuração do plugin, limpa a tabela e traz os helpers (`publicar()`, `processarEnvios()`, `clienteQueDevolve()`…).
+- A resposta do BSC é testada por `HttpClient::interpret()`; o envio, por um `Client` injetado via `configurar(['client' => ...])`.
+- O transporte (curl, token, timeouts) é testado em `HttpTransportTest` contra um servidor simulado no loopback (`tests/src/Fake/bsc-server.php`).

@@ -1,24 +1,13 @@
 # Componente `<govbr-satisfaction-requests>`
 
-Consulta das solicitações de pesquisa de satisfação disparadas ao gov.br pelo BSC,
-na página "Satisfação gov.br" do painel.
+Consulta das solicitações de pesquisa de satisfação disparadas ao gov.br pelo BSC, na página "Satisfação gov.br" do painel. Restrito a quem administra a instalação.
 
-Só leitura. As regras da integração estão fechadas com a área e vivem no código
-e no `.env` — uma tela para alterá-las seria um jeito de quebrar por acidente o
-que foi acordado.
+- Os contadores do topo filtram por situação (clicar de novo limpa) e ignoram os filtros aplicados: são o retrato do conjunto.
+- "Disparado" significa que o Mapa enviou, **não** que o cidadão recebeu o e-mail.
+- Cada linha abre o conteúdo enviado e a resposta do BSC (`GET_payload`), com CPF, nome e e-mail mascarados.
+- Linhas `recusado` têm a ação **Devolver à fila** (`POST_requeue`), a única escrita da tela.
 
-Os contadores do topo são também o filtro de situação: clicar em um deles filtra
-a lista, clicar de novo limpa. Eles ignoram os filtros aplicados de propósito,
-porque são o retrato do conjunto e precisam continuar válidos enquanto se navega
-dentro de uma situação.
-
-"Disparado" significa que o Mapa enviou a solicitação, e **não** que o cidadão
-recebeu o e-mail: a API não devolve confirmação, e o fluxo segue do lado do
-gov.br. A tela diz isso explicitamente para que a coluna não seja lida como
-entrega.
-
-Não recebe propriedades — busca tudo em `govbr-satisfaction-requests`, restrito a
-quem administra a instalação.
+Não recebe propriedades.
 
 ### Importando componente
 
