@@ -54,8 +54,13 @@ class Mask
         );
     }
 
+    /** Idempotente. */
     public static function cpf(string $cpf): string
     {
+        if (preg_match('/^\d{3}\.\*{3}\.\*{3}-\d{2}$/', $cpf) || $cpf === '***') {
+            return $cpf;
+        }
+
         if (strlen($cpf) !== 11) {
             return '***';
         }

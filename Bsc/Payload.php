@@ -20,11 +20,7 @@ class Payload
     /** O contrato pede "dd/mm/aaaa". */
     const DATE_FORMAT = 'd/m/Y';
 
-    /**
-     * Uma codificação para o fio e para a cópia gravada, byte a byte.
-     * Byte inválido em UTF-8 (nome colado de outro lugar) vira U+FFFD em vez
-     * de derrubar a codificação; o resto lança, e o Sender trata.
-     */
+    /** Codificação única para o fio e a cópia gravada; UTF-8 inválido vira U+FFFD. */
     const JSON_FLAGS = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
         | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR;
 

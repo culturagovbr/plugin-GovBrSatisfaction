@@ -34,10 +34,7 @@ class SchemaTest extends TestCase
         }
     }
 
-    /**
-     * A cópia do envio em `send_payload` é assumida; coluna `cpf` ou `email`
-     * seria duplicação nova.
-     */
+    /** Sem coluna de dado pessoal. */
     function testNaoTemColunaDeDadoPessoal()
     {
         $colunas = $this->colunas();

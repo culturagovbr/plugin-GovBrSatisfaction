@@ -64,10 +64,9 @@ class SatisfactionSender
 
         $payload = Payload::build($request, $cpf);
 
-        // Gravado antes da chamada: vale mesmo que o envio falhe. Corpo que
-        // não codifica não vai sair nunca: recusa, e não retentativa.
+        // Cópia mascarada do corpo, gravada antes do envio.
         try {
-            $request->sendPayload = Payload::encode($payload);
+            $request->sendPayload = Payload::encode(Mask::forScreen($payload));
         } catch (\JsonException $e) {
             $app->log->error(sprintf(
                 '[GovBrSatisfaction] corpo da solicitação %d não codifica: %s',

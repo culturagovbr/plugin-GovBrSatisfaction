@@ -118,10 +118,8 @@ class PayloadTest extends TestCase
         $this->assertSame($payload['cpfCidadao'], $payload['cpfConsulta']);
     }
 
-    /**
-     * A cópia é byte a byte o que foi para o fio.
-     */
-    function testGuardaOConteudoEnviado()
+    /** A cópia gravada é mascarada e tem a codificação do fio. */
+    function testGuardaOConteudoEnviadoMascarado()
     {
         $this->publicarEspaco();
         $this->processarEnvios();
@@ -130,7 +128,9 @@ class PayloadTest extends TestCase
         $guardado = json_decode($linha['send_payload'], true);
 
         $this->assertIsArray($guardado, 'o conteúdo enviado não foi guardado');
-        $this->assertSame(self::CPF, $guardado['cpfCidadao']);
+        $this->assertSame('776.***.***-68', $guardado['cpfCidadao']);
+        $this->assertSame($guardado['cpfCidadao'], $guardado['usuario']);
+        $this->assertStringNotContainsString(self::CPF, $linha['send_payload'], 'CPF por extenso na tabela');
         $this->assertSame($this->servico('espaco'), $guardado['servico']);
 
         $this->assertSame(Payload::encode($guardado), $linha['send_payload']);

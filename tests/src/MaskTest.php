@@ -65,6 +65,14 @@ class MaskTest extends TestCase
         ];
     }
 
+    function testMascararDuasVezesDaNoMesmo()
+    {
+        $umaVez = Mask::forScreen(self::PAYLOAD);
+
+        $this->assertSame($umaVez, Mask::forScreen($umaVez));
+        $this->assertSame('776.***.***-68', $umaVez['cpfCidadao']);
+    }
+
     function testCpfForaDoFormatoSaiTodoCoberto()
     {
         $this->assertSame('***', Mask::cpf('123'));
