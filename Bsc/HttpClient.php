@@ -17,7 +17,7 @@ class HttpClient implements Client
     /** Segundos para abrir a conexão. */
     const CONNECT_TIMEOUT = 10;
 
-    /** Corte do motivo lido do corpo, para o resumo. */
+    /** Corte do texto da resposta no log. */
     const REASON_MAX = 200;
 
     private readonly string $baseUrl;
@@ -177,7 +177,7 @@ class HttpClient implements Client
             '[GovBrSatisfaction] envio ao BSC: %s, HTTP %s%s',
             $result->outcome->value,
             $result->status ?? '-',
-            $result->detail ? ": " . Mask::forLogText($result->detail, $known) : ''
+            $result->detail ? ": " . mb_substr(Mask::forLogText($result->detail, $known), 0, self::REASON_MAX) : ''
         );
 
         if ($result->outcome === Outcome::Sent) {
@@ -210,7 +210,7 @@ class HttpClient implements Client
         if (is_array($json)) {
             foreach (['detail', 'message', 'title'] as $key) {
                 if (isset($json[$key]) && is_string($json[$key]) && $json[$key] !== '') {
-                    return mb_substr($json[$key], 0, self::REASON_MAX);
+                    return $json[$key];
                 }
             }
 
@@ -219,7 +219,7 @@ class HttpClient implements Client
 
         $body = trim($body);
 
-        return $body === '' ? null : mb_substr($body, 0, self::REASON_MAX);
+        return $body === '' ? null : $body;
     }
 
     private function token(): ?string
@@ -256,7 +256,7 @@ class HttpClient implements Client
             App::i()->log->warning(sprintf(
                 '[GovBrSatisfaction] o endpoint de token respondeu HTTP %d sem accessToken: %s',
                 $status,
-                Mask::forLogText(mb_substr(trim($result), 0, self::REASON_MAX))
+                mb_substr(Mask::forLogText(trim($result)), 0, self::REASON_MAX)
             ));
         }
 

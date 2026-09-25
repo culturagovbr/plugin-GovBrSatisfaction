@@ -283,6 +283,23 @@ class SendTest extends TestCase
         }
     }
 
+    /** CPF na altura do corte do motivo não sobra pela metade. */
+    function testDadoNoLimiteDoMotivoNaoSobraPelaMetade()
+    {
+        $this->publicarEspaco();
+        $mensagem = str_repeat('x', 189) . ' cpf ' . self::CPF . ' inválido';
+        $this->configurar(['client' => $this->clienteQueDevolve(
+            \GovBrSatisfaction\Bsc\HttpClient::interpret(400, json_encode(['message' => $mensagem]))
+        )]);
+
+        $this->processarEnvios();
+
+        foreach ([$this->solicitacoes()[0]['send_detail'], $this->ultimaTentativa()['detail']] as $gravado) {
+            $this->assertStringContainsString('cpf ***', $gravado);
+            $this->assertStringNotContainsString('776890', $gravado);
+        }
+    }
+
     /** Exceção com CPF na mensagem não vai por extenso para o resumo. */
     function testExcecaoDoClienteGravaResumoMascarado()
     {
