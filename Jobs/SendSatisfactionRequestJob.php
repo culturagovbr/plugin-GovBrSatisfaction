@@ -4,7 +4,7 @@ namespace GovBrSatisfaction\Jobs;
 
 use GovBrSatisfaction\Entities\SatisfactionRequest;
 use GovBrSatisfaction\Plugin;
-use GovBrSatisfaction\Services\SatisfactionSender;
+use GovBrSatisfaction\Services\SendOutcome;
 use MapasCulturais\App;
 use MapasCulturais\Definitions\JobType;
 use MapasCulturais\Entities\Job;
@@ -78,13 +78,13 @@ class SendSatisfactionRequestJob extends JobType
 
                 // Só o transporte para a varredura; um 500 de uma linha é
                 // problema dela, e as outras seguem.
-                if ($desfecho === SatisfactionSender::OUTCOME_RETRY_TRANSPORT) {
+                if ($desfecho === SendOutcome::RetryTransport) {
                     $retry = true;
 
                     break;
                 }
 
-                if ($desfecho === SatisfactionSender::OUTCOME_RETRY_ROW) {
+                if ($desfecho === SendOutcome::RetryRow) {
                     $retentarLinhas = true;
                 }
             }

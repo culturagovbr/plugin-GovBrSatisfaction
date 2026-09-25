@@ -5,6 +5,7 @@ namespace GovBrSatisfaction\Services;
 use GovBrSatisfaction\Entities\SatisfactionRequest;
 use GovBrSatisfaction\Jobs\SendSatisfactionRequestJob;
 use GovBrSatisfaction\Plugin;
+use GovBrSatisfaction\Servico;
 use MapasCulturais\App;
 use MapasCulturais\Entity;
 use MapasCulturais\Entities\Agent;
@@ -17,26 +18,23 @@ use MapasCulturais\Entities\User;
  */
 class SatisfactionRegistry
 {
-    private Plugin $plugin;
-
     /**
      * Entidades marcadas no gancho de status, aguardando o save:finish (antes
      * dele não há id). Chave é o objeto, não spl_object_id: o PHP reaproveita
      * esse número após a coleta.
      *
-     * @var \SplObjectStorage<Entity,string> entidade => chave do serviço
+     * @var \SplObjectStorage<Entity,Servico>
      */
     private \SplObjectStorage $marked;
 
-    public function __construct(Plugin $plugin)
+    public function __construct(private readonly Plugin $plugin)
     {
-        $this->plugin = $plugin;
         $this->marked = new \SplObjectStorage;
     }
 
     public function markForRegistration(Entity $entity): void
     {
-        $servico = Plugin::PUBLISHED_ENTITIES[$entity->getEntityType()] ?? null;
+        $servico = Servico::fromEntityType($entity->getEntityType());
 
         if (!$servico) {
             return;
@@ -73,21 +71,21 @@ class SatisfactionRegistry
     }
 
     /** Registra sem propagar exceção. */
-    public function registerRequest(User $user, string $servicoKey, ?Entity $entity): void
+    public function registerRequest(User $user, Servico $servico, ?Entity $entity): void
     {
         try {
-            $this->registrar($user, $servicoKey, $entity);
+            $this->registrar($user, $servico, $entity);
         } catch (\Throwable $e) {
             App::i()->log->error(sprintf(
                 '[GovBrSatisfaction] falha ao registrar o serviço %s do usuário %d: %s',
-                $servicoKey,
+                $servico->value,
                 $user->id,
                 $e->getMessage()
             ));
         }
     }
 
-    private function registrar(User $user, string $servicoKey, ?Entity $entity): void
+    private function registrar(User $user, Servico $servico, ?Entity $entity): void
     {
         $app = App::i();
         $config = $this->plugin->config;
@@ -113,10 +111,10 @@ class SatisfactionRegistry
             return;
         }
 
-        $servico = $config['servicos'][$servicoKey] ?? '';
+        $idServico = $config['servicos'][$servico->value] ?? '';
 
-        if ($servico === '') {
-            $app->log->warning("[GovBrSatisfaction] serviço {$servicoKey} sem id configurado; nada registrado");
+        if ($idServico === '') {
+            $app->log->warning("[GovBrSatisfaction] serviço {$servico->value} sem id configurado; nada registrado");
 
             return;
         }
@@ -124,7 +122,7 @@ class SatisfactionRegistry
         // Uma por usuário e serviço.
         $existente = $app->repo(SatisfactionRequest::class)->findOneBy([
             'user' => $user,
-            'servico' => $servico,
+            'servico' => $idServico,
         ]);
 
         if ($existente) {
@@ -132,14 +130,14 @@ class SatisfactionRegistry
         }
 
         if (!$app->em->isOpen()) {
-            $app->log->error("[GovBrSatisfaction] unidade de trabalho fechada, serviço {$servicoKey} não registrado");
+            $app->log->error("[GovBrSatisfaction] unidade de trabalho fechada, serviço {$servico->value} não registrado");
 
             return;
         }
 
         $request = new SatisfactionRequest;
         $request->user = $user;
-        $request->servico = $servico;
+        $request->servico = $idServico;
         $request->subsite = $subsite;
 
         $request->objectType = $entity ? $entity->getEntityType() : null;

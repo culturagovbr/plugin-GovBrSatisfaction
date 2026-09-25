@@ -3,6 +3,7 @@
 namespace GovBrSatisfaction\Services;
 
 use GovBrSatisfaction\Bsc\Client;
+use GovBrSatisfaction\Bsc\Outcome;
 use GovBrSatisfaction\Bsc\Result;
 use GovBrSatisfaction\Bsc\Payload;
 use GovBrSatisfaction\Entities\SatisfactionRequest;
@@ -26,20 +27,8 @@ class SatisfactionSender
      */
     const MAX_ATTEMPTS = 3;
 
-    /** A linha saiu da fila: enviada, recusada, sem CPF ou descartada. */
-    const OUTCOME_DONE = 'concluida';
-
-    /** 500 da aplicação para esta linha; a varredura segue para a próxima. */
-    const OUTCOME_RETRY_ROW = 'retentar-linha';
-
-    /** Token, rede, gateway ou proxy falharam; a varredura para e se adia. */
-    const OUTCOME_RETRY_TRANSPORT = 'retentar-transporte';
-
-    private Plugin $plugin;
-
-    public function __construct(Plugin $plugin)
+    public function __construct(private readonly Plugin $plugin)
     {
-        $this->plugin = $plugin;
     }
 
     /**
@@ -47,10 +36,8 @@ class SatisfactionSender
      *
      * O cliente vem de fora para que a varredura use um só — o HttpClient
      * guarda o token pela vida da instância.
-     *
-     * @return string Um dos OUTCOME_*
      */
-    public function send(SatisfactionRequest $request, Client $client): string
+    public function send(SatisfactionRequest $request, Client $client): SendOutcome
     {
         $app = App::i();
 
@@ -66,7 +53,7 @@ class SatisfactionSender
 
             $request->delete();
 
-            return self::OUTCOME_DONE;
+            return SendOutcome::Done;
         }
 
         $cpf = Payload::cpf($request->user, $this->plugin->config['metadataFieldCPF']);
@@ -75,7 +62,7 @@ class SatisfactionSender
             $request->sendStatus = SatisfactionRequest::STATUS_NO_CPF;
             $request->save(true);
 
-            return self::OUTCOME_DONE;
+            return SendOutcome::Done;
         }
 
         $payload = Payload::build($request, $cpf);
@@ -95,7 +82,7 @@ class SatisfactionSender
             $request->sendDetail = 'erro ao montar o corpo: ' . $e->getMessage();
             $request->save(true);
 
-            return self::OUTCOME_DONE;
+            return SendOutcome::Done;
         }
 
         // Marca antes de chamar: se o processo morrer no meio do POST, é
@@ -118,7 +105,7 @@ class SatisfactionSender
             ));
 
             $excecao = true;
-            $resultado = new Result(Result::RETRY, null, 'erro no envio: ' . $e->getMessage());
+            $resultado = new Result(Outcome::Retry, null, 'erro no envio: ' . $e->getMessage());
         }
 
         $request->sendHttpStatus = $resultado->status;
@@ -127,16 +114,16 @@ class SatisfactionSender
             ? null
             : mb_substr($resultado->detail, 0, Result::DETAIL_MAX);
 
-        if ($resultado->outcome === Result::SENT) {
+        if ($resultado->outcome === Outcome::Sent) {
             $request->save(true);
 
-            return self::OUTCOME_DONE;
+            return SendOutcome::Done;
         }
 
         $request->sendTimestamp = null;
 
         $desistir = false;
-        $falhaDaLinha = $resultado->outcome === Result::RETRY && ($excecao || self::contaTentativa($resultado));
+        $falhaDaLinha = $resultado->outcome === Outcome::Retry && ($excecao || self::contaTentativa($resultado));
 
         if ($falhaDaLinha) {
             $request->sendAttempts = (int) $request->sendAttempts + 1;
@@ -151,17 +138,17 @@ class SatisfactionSender
             ));
         }
 
-        $request->sendStatus = $resultado->outcome === Result::REJECTED || $desistir
+        $request->sendStatus = $resultado->outcome === Outcome::Rejected || $desistir
             ? SatisfactionRequest::STATUS_REJECTED
             : SatisfactionRequest::STATUS_PENDING;
 
         $request->save(true);
 
         if ($request->sendStatus === SatisfactionRequest::STATUS_REJECTED) {
-            return self::OUTCOME_DONE;
+            return SendOutcome::Done;
         }
 
-        return $falhaDaLinha ? self::OUTCOME_RETRY_ROW : self::OUTCOME_RETRY_TRANSPORT;
+        return $falhaDaLinha ? SendOutcome::RetryRow : SendOutcome::RetryTransport;
     }
 
     /** Devolve à fila: zera tentativas, mantém a última resposta. */

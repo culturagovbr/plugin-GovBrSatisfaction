@@ -2,6 +2,7 @@
 
 namespace Tests\GovBrSatisfaction;
 
+use GovBrSatisfaction\Bsc\Outcome;
 use GovBrSatisfaction\Bsc\Result;
 use GovBrSatisfaction\Services\SatisfactionSender;
 use MapasCulturais\App;
@@ -19,7 +20,7 @@ class SendTest extends TestCase
     function testEnvioQueNaoSaiVoltaAPendente()
     {
         $this->publicarEspaco();
-        $this->configurar(['client' => $this->clienteQueDevolve(new Result(Result::RETRY, 503, 'no healthy upstream'))]);
+        $this->configurar(['client' => $this->clienteQueDevolve(new Result(Outcome::Retry, 503, 'no healthy upstream'))]);
 
         $this->processarEnvios();
 
@@ -34,7 +35,7 @@ class SendTest extends TestCase
     {
         $this->publicarEspaco();
         $this->configurar(['client' => $this->clienteQueDevolve(
-            new Result(Result::REJECTED, 400, 'Parâmetro(s) de entrada inválido(s)', self::CORPO_RECUSA)
+            new Result(Outcome::Rejected, 400, 'Parâmetro(s) de entrada inválido(s)', self::CORPO_RECUSA)
         )]);
 
         $this->processarEnvios();
@@ -51,7 +52,7 @@ class SendTest extends TestCase
     function testDepoisDeVoltarAPendenteAProximaVarreduraEnvia()
     {
         $this->publicarEspaco();
-        $this->configurar(['client' => $this->clienteQueDevolve(new Result(Result::RETRY, 503, 'no healthy upstream'))]);
+        $this->configurar(['client' => $this->clienteQueDevolve(new Result(Outcome::Retry, 503, 'no healthy upstream'))]);
         $this->processarEnvios();
 
         $this->configurar(['client' => null]);
@@ -145,7 +146,7 @@ class SendTest extends TestCase
     function testPublicarDuranteQuedaNaoAnulaOAdiamento()
     {
         $this->publicarEspaco();
-        $this->configurar(['client' => $this->clienteQueDevolve(new Result(Result::RETRY, 503, 'no healthy upstream'))]);
+        $this->configurar(['client' => $this->clienteQueDevolve(new Result(Outcome::Retry, 503, 'no healthy upstream'))]);
 
         // a varredura falha e se adia com falhas = 1
         $this->processarEnvios();
@@ -177,7 +178,7 @@ class SendTest extends TestCase
     {
         $this->publicarEspaco();
         $this->configurar(['client' => $this->clienteQueDevolve(
-            new Result(Result::RETRY, 500, 'Erro interno', '{"message":"Erro interno"}')
+            new Result(Outcome::Retry, 500, 'Erro interno', '{"message":"Erro interno"}')
         )]);
 
         for ($i = 0; $i < SatisfactionSender::MAX_ATTEMPTS; $i++) {
@@ -198,7 +199,7 @@ class SendTest extends TestCase
     function testQuedaDoTransporteNaoConsomeTentativas(?int $status, string $detalhe)
     {
         $this->publicarEspaco();
-        $this->configurar(['client' => $this->clienteQueDevolve(new Result(Result::RETRY, $status, $detalhe))]);
+        $this->configurar(['client' => $this->clienteQueDevolve(new Result(Outcome::Retry, $status, $detalhe))]);
 
         for ($i = 0; $i < SatisfactionSender::MAX_ATTEMPTS + 2; $i++) {
             $this->processarEnvios();
@@ -257,8 +258,8 @@ class SendTest extends TestCase
         $espaco = $this->servico('espaco');
 
         $this->configurar(['client' => $this->clienteQueDecide(fn(array $payload) => $payload['servico'] === $espaco
-            ? new Result(Result::RETRY, 500, 'Erro interno', '{"message":"Erro interno"}')
-            : new Result(Result::SENT, 200, null, '{"emailEnviado":true}')
+            ? new Result(Outcome::Retry, 500, 'Erro interno', '{"message":"Erro interno"}')
+            : new Result(Outcome::Sent, 200, null, '{"emailEnviado":true}')
         )]);
 
         $this->processarEnvios();
@@ -280,7 +281,7 @@ class SendTest extends TestCase
         $this->publicarEspaco();
         $this->publicar($this->projectDirector->createProject($this->cidadao->profile));
 
-        $cliente = $this->clienteQueDevolve(new Result(Result::RETRY, 503, 'no healthy upstream'));
+        $cliente = $this->clienteQueDevolve(new Result(Outcome::Retry, 503, 'no healthy upstream'));
 
         $this->configurar(['client' => $cliente]);
         $this->processarEnvios();

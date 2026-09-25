@@ -32,10 +32,7 @@ class HttpClient implements Client
     /** Corte do motivo lido do corpo, para o resumo. */
     const MOTIVO_MAX = 200;
 
-    private string $baseUrl;
-    private string $authUrl;
-    private string $clientId;
-    private string $clientSecret;
+    private readonly string $baseUrl;
 
     /**
      * Guardado pela vida da instância (uma varredura). A validade não é
@@ -43,12 +40,13 @@ class HttpClient implements Client
      */
     private ?string $token = null;
 
-    public function __construct(string $baseUrl, string $authUrl, string $clientId, string $clientSecret)
-    {
+    public function __construct(
+        string $baseUrl,
+        private readonly string $authUrl,
+        private readonly string $clientId,
+        private readonly string $clientSecret,
+    ) {
         $this->baseUrl = rtrim($baseUrl, '/');
-        $this->authUrl = $authUrl;
-        $this->clientId = $clientId;
-        $this->clientSecret = $clientSecret;
     }
 
     public function send(array $payload): Result
@@ -66,7 +64,7 @@ class HttpClient implements Client
         if (!$token) {
             $app->log->error('[GovBrSatisfaction] envio abortado: não foi possível obter token do BSC');
 
-            return new Result(Result::RETRY, null, 'não foi possível obter token do BSC');
+            return new Result(Outcome::Retry, null, 'não foi possível obter token do BSC');
         }
 
         $resultado = $this->post($payload, $token);
@@ -77,7 +75,7 @@ class HttpClient implements Client
 
             $resultado = $this->token
                 ? $this->post($payload, $this->token)
-                : new Result(Result::RETRY, null, 'não foi possível renovar o token do BSC');
+                : new Result(Outcome::Retry, null, 'não foi possível renovar o token do BSC');
         }
 
         $this->registrarEmLog($resultado);
@@ -123,10 +121,10 @@ class HttpClient implements Client
         if ($errno !== 0) {
             // Após o despacho é ambíguo: melhor deixar de convidar que convidar duas vezes.
             if (in_array($errno, self::ERROS_APOS_DESPACHO, true)) {
-                return new Result(Result::SENT, null, "falha de rede após o despacho: {$curlError}");
+                return new Result(Outcome::Sent, null, "falha de rede após o despacho: {$curlError}");
             }
 
-            return new Result(Result::RETRY, null, "falha de rede antes do despacho: {$curlError}");
+            return new Result(Outcome::Retry, null, "falha de rede antes do despacho: {$curlError}");
         }
 
         $body = self::limpar($body);
@@ -138,30 +136,30 @@ class HttpClient implements Client
             // `emailEnviado` falso é o BSC dizendo que não convidou. Recusado,
             // não pendente: a avaliação já existe lá e repetir dá "já enviada".
             if (is_array($json) && array_key_exists('emailEnviado', $json) && $json['emailEnviado'] === false) {
-                return new Result(Result::REJECTED, $status, 'o BSC informou que o e-mail não foi enviado', $body);
+                return new Result(Outcome::Rejected, $status, 'o BSC informou que o e-mail não foi enviado', $body);
             }
 
             $protocolo = is_array($json) ? ($json['protocolo'] ?? null) : null;
 
-            return new Result(Result::SENT, $status, $protocolo ? "protocolo {$protocolo}" : null, $body);
+            return new Result(Outcome::Sent, $status, $protocolo ? "protocolo {$protocolo}" : null, $body);
         }
 
         $motivo = self::motivo($body);
 
         // "Já enviada": enviado.
         if ($motivo && mb_stripos($motivo, 'já enviada') !== false) {
-            return new Result(Result::SENT, $status, $motivo, $body);
+            return new Result(Outcome::Sent, $status, $motivo, $body);
         }
 
         // 4xx: credencial, permissão, serviço inexistente, payload inválido.
         if ($status >= 400 && $status < 500) {
-            return new Result(Result::REJECTED, $status, $motivo, $body);
+            return new Result(Outcome::Rejected, $status, $motivo, $body);
         }
 
         // 5xx, 3xx e 0 sem erro de curl: transitório.
         $detalhe = $motivo ?? ($status ? "resposta inesperada HTTP {$status}" : 'sem resposta do BSC');
 
-        return new Result(Result::RETRY, $status ?: null, $detalhe, $body);
+        return new Result(Outcome::Retry, $status ?: null, $detalhe, $body);
     }
 
     /**
@@ -170,7 +168,7 @@ class HttpClient implements Client
      */
     private function registrarEmLog(Result $resultado): void
     {
-        $limpo = $resultado->outcome === Result::SENT
+        $limpo = $resultado->outcome === Outcome::Sent
             && $resultado->status !== null && $resultado->status < 300;
 
         if ($limpo) {
@@ -179,12 +177,12 @@ class HttpClient implements Client
 
         $mensagem = sprintf(
             '[GovBrSatisfaction] envio ao BSC: %s, HTTP %s%s',
-            $resultado->outcome,
+            $resultado->outcome->value,
             $resultado->status ?? '-',
             $resultado->detail ? " — {$resultado->detail}" : ''
         );
 
-        if ($resultado->outcome === Result::SENT) {
+        if ($resultado->outcome === Outcome::Sent) {
             App::i()->log->warning($mensagem);
         } else {
             App::i()->log->error($mensagem);

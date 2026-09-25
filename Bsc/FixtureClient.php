@@ -22,7 +22,7 @@ class FixtureClient implements Client
         ));
 
         return new Result(
-            Result::SENT,
+            Outcome::Sent,
             200,
             'fixture: nenhuma requisição HTTP foi feita',
             json_encode(['emailEnviado' => true, 'protocolo' => 'FIXTURE'], JSON_UNESCAPED_UNICODE)

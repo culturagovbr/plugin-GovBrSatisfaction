@@ -3,6 +3,7 @@
 namespace Tests\GovBrSatisfaction;
 
 use GovBrSatisfaction\Bsc\HttpClient;
+use GovBrSatisfaction\Bsc\Outcome;
 use GovBrSatisfaction\Bsc\Result;
 
 /**
@@ -20,7 +21,7 @@ class HttpClientTest extends TestCase
     {
         $r = HttpClient::interpretar(200, '{"emailEnviado":true,"protocolo":"77689062768ABC"}');
 
-        $this->assertSame(Result::SENT, $r->outcome);
+        $this->assertSame(Outcome::Sent, $r->outcome);
         $this->assertSame(200, $r->status);
         $this->assertSame('protocolo 77689062768ABC', $r->detail);
     }
@@ -30,7 +31,7 @@ class HttpClientTest extends TestCase
     {
         $r = HttpClient::interpretar(201, '');
 
-        $this->assertSame(Result::SENT, $r->outcome);
+        $this->assertSame(Outcome::Sent, $r->outcome);
         $this->assertNull($r->detail);
     }
 
@@ -39,7 +40,7 @@ class HttpClientTest extends TestCase
     {
         $r = HttpClient::interpretar(200, '{"emailEnviado":false,"protocolo":"X"}');
 
-        $this->assertSame(Result::REJECTED, $r->outcome);
+        $this->assertSame(Outcome::Rejected, $r->outcome);
     }
 
     /** 3xx é o gateway; o POST não chegou à API. */
@@ -47,7 +48,7 @@ class HttpClientTest extends TestCase
     {
         $r = HttpClient::interpretar(302, '');
 
-        $this->assertSame(Result::RETRY, $r->outcome, 'redirecionamento foi tratado como envio');
+        $this->assertSame(Outcome::Retry, $r->outcome, 'redirecionamento foi tratado como envio');
         $this->assertSame(302, $r->status);
     }
 
@@ -55,23 +56,23 @@ class HttpClientTest extends TestCase
     {
         $r = HttpClient::interpretar(400, self::CORPO_RECUSA);
 
-        $this->assertSame(Result::REJECTED, $r->outcome);
+        $this->assertSame(Outcome::Rejected, $r->outcome);
         $this->assertSame(400, $r->status);
         $this->assertSame('Parâmetro(s) de entrada inválido(s)', $r->detail);
     }
 
     function testCredencialRecusadaEhRecusa()
     {
-        $this->assertSame(Result::REJECTED, HttpClient::interpretar(401, '')->outcome);
-        $this->assertSame(Result::REJECTED, HttpClient::interpretar(403, '')->outcome);
-        $this->assertSame(Result::REJECTED, HttpClient::interpretar(404, '')->outcome);
+        $this->assertSame(Outcome::Rejected, HttpClient::interpretar(401, '')->outcome);
+        $this->assertSame(Outcome::Rejected, HttpClient::interpretar(403, '')->outcome);
+        $this->assertSame(Outcome::Rejected, HttpClient::interpretar(404, '')->outcome);
     }
 
     function testJaEnviadaEhEnvioMesmoCom500()
     {
         $r = HttpClient::interpretar(500, '{"message":"Avaliação já enviada"}');
 
-        $this->assertSame(Result::SENT, $r->outcome);
+        $this->assertSame(Outcome::Sent, $r->outcome);
         $this->assertSame(500, $r->status);
     }
 
@@ -79,7 +80,7 @@ class HttpClientTest extends TestCase
     {
         $r = HttpClient::interpretar(500, '{"message":"Internal error"}');
 
-        $this->assertSame(Result::RETRY, $r->outcome);
+        $this->assertSame(Outcome::Retry, $r->outcome);
         $this->assertSame('Internal error', $r->detail);
     }
 
@@ -88,7 +89,7 @@ class HttpClientTest extends TestCase
     {
         $r = HttpClient::interpretar(503, 'no healthy upstream');
 
-        $this->assertSame(Result::RETRY, $r->outcome);
+        $this->assertSame(Outcome::Retry, $r->outcome);
         $this->assertSame('no healthy upstream', $r->detail);
         $this->assertSame('no healthy upstream', $r->body);
     }
@@ -97,7 +98,7 @@ class HttpClientTest extends TestCase
     {
         $r = HttpClient::interpretar(0, '');
 
-        $this->assertSame(Result::RETRY, $r->outcome);
+        $this->assertSame(Outcome::Retry, $r->outcome);
         $this->assertNull($r->status);
     }
 
@@ -107,7 +108,7 @@ class HttpClientTest extends TestCase
         foreach ([CURLE_COULDNT_RESOLVE_HOST, CURLE_COULDNT_CONNECT, CURLE_SSL_CONNECT_ERROR] as $errno) {
             $r = HttpClient::interpretar(0, '', $errno, 'erro');
 
-            $this->assertSame(Result::RETRY, $r->outcome, "curl errno {$errno} foi tratado como envio");
+            $this->assertSame(Outcome::Retry, $r->outcome, "curl errno {$errno} foi tratado como envio");
             $this->assertNull($r->status);
         }
     }
@@ -117,7 +118,7 @@ class HttpClientTest extends TestCase
     {
         $r = HttpClient::interpretar(0, '', CURLE_OPERATION_TIMEDOUT, 'Operation timed out');
 
-        $this->assertSame(Result::SENT, $r->outcome);
+        $this->assertSame(Outcome::Sent, $r->outcome);
         $this->assertNull($r->status);
         $this->assertStringContainsString('Operation timed out', $r->detail);
     }

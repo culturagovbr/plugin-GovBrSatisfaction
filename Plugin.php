@@ -22,15 +22,6 @@ class Plugin extends \MapasCulturais\Plugin
     /** Papel que enxerga o painel e as solicitações. */
     const ADMIN_ROLE = 'saasSuperAdmin';
 
-    /** Entidades cuja publicação dispara uma solicitação. */
-    const PUBLISHED_ENTITIES = [
-        'Agent' => 'coletivo',
-        'Event' => 'evento',
-        'Space' => 'espaco',
-        'Project' => 'projeto',
-        'Opportunity' => 'oportunidade',
-    ];
-
     private ?Services\SatisfactionRegistry $registry = null;
 
     private ?Services\SatisfactionSender $sender = null;
@@ -47,6 +38,12 @@ class Plugin extends \MapasCulturais\Plugin
 
     function __construct(array $config = [])
     {
+        $servicos = [];
+
+        foreach (Servico::cases() as $servico) {
+            $servicos[$servico->value] = self::strEnv($servico->envVar());
+        }
+
         $config += [
             'enabled' => true,
 
@@ -59,14 +56,8 @@ class Plugin extends \MapasCulturais\Plugin
             'bscUrl' => env('AVALIACAO_BSC_URL', ''),
             'orgao' => self::strEnv('AVALIACAO_ORGAO'),
 
-            'servicos' => [
-                'cadastro' => self::strEnv('AVALIACAO_SERVICO_CADASTRO'),
-                'coletivo' => self::strEnv('AVALIACAO_SERVICO_COLETIVO'),
-                'oportunidade' => self::strEnv('AVALIACAO_SERVICO_OPORTUNIDADE'),
-                'evento' => self::strEnv('AVALIACAO_SERVICO_EVENTO'),
-                'espaco' => self::strEnv('AVALIACAO_SERVICO_ESPACO'),
-                'projeto' => self::strEnv('AVALIACAO_SERVICO_PROJETO'),
-            ],
+            // id de cada serviço no Portal, pela chave do enum Servico
+            'servicos' => $servicos,
 
             // credenciais RCV_BSC_*
             'bscAuthUrl' => env('RCV_BSC_AUTH_TOKEN', ''),
@@ -121,7 +112,7 @@ class Plugin extends \MapasCulturais\Plugin
         }
 
         $plugin = $this;
-        $entities = implode('|', array_keys(self::PUBLISHED_ENTITIES));
+        $entities = implode('|', Servico::entityTypes());
 
         // Publicação: transição para ENABLED.
         $app->hook("entity(<<{$entities}>>).setStatus(" . Entity::STATUS_ENABLED . ')', function () use ($plugin) {
@@ -161,7 +152,7 @@ class Plugin extends \MapasCulturais\Plugin
                 return;
             }
 
-            $plugin->registry()->registerRequest($this->owner, 'cadastro', null);
+            $plugin->registry()->registerRequest($this->owner, Servico::Cadastro, null);
         });
 
         $this->registerPanel($app);
@@ -262,9 +253,9 @@ class Plugin extends \MapasCulturais\Plugin
             }
         }
 
-        foreach ($this->config['servicos'] as $key => $id) {
-            if (!$id) {
-                $missing[] = 'AVALIACAO_SERVICO_' . strtoupper($key);
+        foreach (Servico::cases() as $servico) {
+            if (!($this->config['servicos'][$servico->value] ?? '')) {
+                $missing[] = $servico->envVar();
             }
         }
 
