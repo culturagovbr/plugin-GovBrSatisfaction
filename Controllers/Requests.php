@@ -409,7 +409,7 @@ class Requests extends \MapasCulturais\Controller
     const BULK_MAX = 500;
 
     /**
-     * Devolve à fila as recusadas do filtro, com jobs escalonados.
+     * Devolve à fila as recusadas do filtro e da busca, com jobs escalonados.
      *
      * @return void
      */
@@ -423,6 +423,8 @@ class Requests extends \MapasCulturais\Controller
         $qb = $app->em->createQueryBuilder()
             ->select('r')
             ->from(SatisfactionRequest::class, 'r')
+            ->join('r.user', 'u')
+            ->leftJoin('u.profile', 'a')
             ->where('r.sendStatus = :recusado')
             ->setParameter('recusado', SatisfactionRequest::STATUS_REJECTED);
 
@@ -430,6 +432,12 @@ class Requests extends \MapasCulturais\Controller
 
         if (is_string($service) && $service !== '') {
             $qb->andWhere('r.servico = :servico')->setParameter('servico', $service);
+        }
+
+        $search = $this->data['busca'] ?? '';
+
+        if (is_string($search) && trim($search) !== '') {
+            $this->applySearch($qb, trim($search));
         }
 
         $total = (int) (clone $qb)->select('COUNT(r.id)')->getQuery()->getSingleScalarResult();

@@ -302,7 +302,7 @@ app.component('govbr-satisfaction-requests', {
                 const response = await fetch(Utils.createUrl('govbr-satisfaction-requests', 'requeueAll'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ servico: this.filtros.servico }),
+                    body: JSON.stringify({ servico: this.filtros.servico, busca: this.filtros.busca.trim() }),
                 });
 
                 const data = await response.json();
