@@ -24,7 +24,7 @@ app.component('govbr-satisfaction-requests', {
             carregando: false,
 
             // configuração vigente, para os avisos do topo
-            status: { devMode: false, faltando: [], servicos: [] },
+            status: { devMode: false, faltando: [], servicos: [], loteIntervalo: 10, loteMaximo: 500 },
 
             filtros: { situacao: '', servico: '' },
 
@@ -38,6 +38,7 @@ app.component('govbr-satisfaction-requests', {
 
             // id da solicitação sendo devolvida à fila
             devolvendo: null,
+            devolvendoTodas: false,
 
             // só a resposta do pedido mais recente é aceita
             geracao: 0,
@@ -48,6 +49,15 @@ app.component('govbr-satisfaction-requests', {
     computed: {
         filtroAtivo() {
             return Boolean(this.filtros.situacao || this.filtros.servico);
+        },
+
+        podeDevolverTodas() {
+            return this.filtros.situacao === 'recusado' && this.total > 0;
+        },
+
+        // quantas saem neste clique: o total do filtro, até o teto
+        loteTamanho() {
+            return Math.min(this.total, this.status.loteMaximo);
         },
     },
 
@@ -194,6 +204,53 @@ app.component('govbr-satisfaction-requests', {
             } finally {
                 this.devolvendo = null;
             }
+        },
+
+        // todas as recusadas do filtro atual, escalonadas pelo servidor
+        async devolverTodas(modal) {
+            this.devolvendoTodas = true;
+
+            try {
+                const response = await fetch(Utils.createUrl('govbr-satisfaction-requests', 'requeueAll'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ servico: this.filtros.servico }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    this.messages.error(data.error || this.text('devolverTodasErro'));
+                    return;
+                }
+
+                modal.close();
+
+                const ultima = this.duracao(Math.max(0, data.devolvidas - 1) * data.intervalo);
+                this.messages.success(this.fmt('devolverTodasFeito', data.devolvidas, ultima));
+
+                if (data.restantes > 0) {
+                    this.messages.alert(this.fmt('devolverTodasRestantes', data.restantes));
+                }
+
+                this.filtrar();
+            } catch (error) {
+                this.messages.error(this.text('devolverTodasErro'));
+            } finally {
+                this.devolvendoTodas = false;
+            }
+        },
+
+        // "40 s", "17 min", "1 h 23 min"
+        duracao(segundos) {
+            if (segundos < 60) return `${segundos} s`;
+
+            const min = Math.round(segundos / 60);
+            if (min < 60) return `${min} min`;
+
+            const h = Math.floor(min / 60);
+            const resto = min % 60;
+            return resto ? `${h} h ${resto} min` : `${h} h`;
         },
 
         // clicar no contador filtra por aquela situação; clicar de novo limpa

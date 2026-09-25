@@ -165,6 +165,53 @@ class SatisfactionSender
         SendSatisfactionRequestJob::enqueue($request);
     }
 
+    /**
+     * Devolve à fila um lote, com jobs escalonados.
+     *
+     * @param SatisfactionRequest[] $requests
+     * @return int Quantas voltaram
+     */
+    public function requeueMany(array $requests, User $by): int
+    {
+        if (!$requests) {
+            return 0;
+        }
+
+        $app = App::i();
+        $app->disableAccessControl();
+
+        try {
+            foreach (array_values($requests) as $i => $request) {
+                $request->sendStatus = SatisfactionRequest::STATUS_PENDING;
+                $request->sendAttempts = 0;
+                $request->sendTimestamp = null;
+                $request->save();
+            }
+
+            $app->em->flush();
+
+            foreach (array_values($requests) as $i => $request) {
+                $delay = $i * SendSatisfactionRequestJob::BULK_INTERVAL;
+                SendSatisfactionRequestJob::enqueue($request, 0, $delay > 0 ? "+{$delay} seconds" : 'now');
+            }
+        } finally {
+            $app->enableAccessControl();
+        }
+
+        $ids = array_map(fn(SatisfactionRequest $r) => $r->id, $requests);
+
+        $app->log->info(sprintf(
+            '[GovBrSatisfaction] %d solicitações devolvidas à fila pelo usuário %d, espaçadas de %d s (ids %d–%d)',
+            count($requests),
+            $by->id,
+            SendSatisfactionRequestJob::BULK_INTERVAL,
+            min($ids),
+            max($ids)
+        ));
+
+        return count($requests);
+    }
+
     /** Antecipa a tentativa, sem zerar tentativas. */
     public function retryNow(SatisfactionRequest $request, User $by): void
     {

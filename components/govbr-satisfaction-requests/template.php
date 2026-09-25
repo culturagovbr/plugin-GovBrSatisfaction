@@ -57,6 +57,34 @@ $this->import('
                             </option>
                         </select>
                     </div>
+
+                    <!-- lote: só com o filtro de recusadas ativo e algo na lista -->
+                    <mc-modal classes="govbr-satisfaction__modal" :title="text('devolverTodasTitulo')" v-if="podeDevolverTodas">
+                        <template #default>
+                            <p>{{ fmt('devolverTodasConfirmacao', loteTamanho, status.loteIntervalo, duracao(loteTamanho * status.loteIntervalo)) }}</p>
+                            <p class="govbr-satisfaction__nota" v-if="total > loteTamanho">{{ fmt('devolverTodasTeto', loteTamanho, total) }}</p>
+                        </template>
+
+                        <template #actions="modal">
+                            <button class="button button--text button--md" @click="modal.close()">
+                                <?= i::__('Cancelar') ?>
+                            </button>
+                            <button
+                                class="button button--primary button--md"
+                                :class="{disabled: devolvendoTodas}"
+                                :disabled="devolvendoTodas"
+                                @click="devolverTodas(modal)">
+                                <?= i::__('Confirmar') ?>
+                            </button>
+                        </template>
+
+                        <template #button="modal">
+                            <button class="button button--primary-outline button--sm govbr-satisfaction__bulk" @click="modal.open()">
+                                <mc-icon name="govbr-satisfaction-requeue"></mc-icon>
+                                {{ fmt('devolverTodas', total) }}
+                            </button>
+                        </template>
+                    </mc-modal>
                 </div>
             </div>
 

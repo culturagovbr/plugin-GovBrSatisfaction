@@ -25,6 +25,9 @@ class SendSatisfactionRequestJob extends JobType
     /** Espera após 500 da aplicação. */
     const ROW_RETRY = '+1 minutes';
 
+    /** Segundos entre os jobs de um lote. */
+    const BULK_INTERVAL = 10;
+
     /** Um id por solicitação. */
     protected function _generateId(array $data, string $start_string, string $interval_string, int $iterations)
     {

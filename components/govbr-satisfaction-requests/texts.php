@@ -40,6 +40,15 @@ return [
     'devolvido' => i::__('Solicitação devolvida à fila. O envio acontece em seguida.'),
     'devolverErro' => i::__('Não foi possível devolver a solicitação à fila.'),
 
+    // lote: todas as recusadas do filtro atual, uma a cada N segundos
+    'devolverTodas' => i::__('Devolver todas à fila (%s)'),
+    'devolverTodasTitulo' => i::__('Devolver todas à fila?'),
+    'devolverTodasConfirmacao' => i::__('%s solicitações voltam à fila, uma a cada %s segundos — cerca de %s até a última. O contador de tentativas de cada uma é zerado.'),
+    'devolverTodasTeto' => i::__('Saem %s por vez, das mais antigas para as mais novas; há %s no total. Clique de novo para as próximas.'),
+    'devolverTodasFeito' => i::__('%s solicitações devolvidas à fila; a última será tentada em cerca de %s.'),
+    'devolverTodasRestantes' => i::__('Ainda restam %s recusadas. Clique de novo para as próximas.'),
+    'devolverTodasErro' => i::__('Não foi possível devolver as solicitações à fila.'),
+
     // pendente que já falhou e espera o intervalo de retentativa
     'tentarAgora' => i::__('Tentar agora'),
     'tentarAgoraTitulo' => i::__('Tentar agora?'),

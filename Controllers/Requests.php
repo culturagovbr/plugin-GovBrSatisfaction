@@ -174,6 +174,50 @@ class Requests extends \MapasCulturais\Controller
         ]);
     }
 
+    /** Teto por clique. */
+    const BULK_MAX = 500;
+
+    /**
+     * Devolve à fila as recusadas do filtro, com jobs escalonados.
+     *
+     * @return void
+     */
+    public function POST_requeueAll()
+    {
+        $this->requireInstallationAdmin();
+
+        $app = App::i();
+
+        $qb = $app->em->createQueryBuilder()
+            ->select('r')
+            ->from(SatisfactionRequest::class, 'r')
+            ->where('r.sendStatus = :recusado')
+            ->setParameter('recusado', SatisfactionRequest::STATUS_REJECTED);
+
+        $service = $this->data['servico'] ?? '';
+
+        if (is_string($service) && $service !== '') {
+            $qb->andWhere('r.servico = :servico')->setParameter('servico', $service);
+        }
+
+        $total = (int) (clone $qb)->select('COUNT(r.id)')->getQuery()->getSingleScalarResult();
+
+        $requests = $qb
+            ->orderBy('r.createTimestamp', 'ASC')
+            ->addOrderBy('r.id', 'ASC')
+            ->setMaxResults(self::BULK_MAX)
+            ->getQuery()
+            ->getResult();
+
+        $requeued = $this->plugin()->sender()->requeueMany($requests, $app->user);
+
+        $this->json([
+            'devolvidas' => $requeued,
+            'restantes' => max(0, $total - $requeued),
+            'intervalo' => \GovBrSatisfaction\Jobs\SendSatisfactionRequestJob::BULK_INTERVAL,
+        ]);
+    }
+
     /**
      * Configuração vigente, para os avisos da tela.
      *
@@ -197,6 +241,8 @@ class Requests extends \MapasCulturais\Controller
             'devMode' => $plugin->isDevMode(),
             'faltando' => $plugin->missingConfig(),
             'servicos' => $services,
+            'loteIntervalo' => \GovBrSatisfaction\Jobs\SendSatisfactionRequestJob::BULK_INTERVAL,
+            'loteMaximo' => self::BULK_MAX,
         ]);
     }
 
