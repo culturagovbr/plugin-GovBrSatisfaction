@@ -25,11 +25,14 @@ class HttpClient implements Client
     /** Token da instância; 401 com token reutilizado renova uma vez. */
     private ?string $token = null;
 
+    /** Cliente com URL, credenciais e timeouts. */
     public function __construct(
         string $baseUrl,
         private readonly string $authUrl,
         private readonly string $clientId,
         private readonly string $clientSecret,
+        private readonly int $timeout = self::TIMEOUT,
+        private readonly int $connectTimeout = self::CONNECT_TIMEOUT,
     ) {
         $this->baseUrl = rtrim($baseUrl, '/');
     }
@@ -76,8 +79,8 @@ class HttpClient implements Client
             CURLOPT_URL => "{$this->baseUrl}/api/avaliacao/completa",
             CURLOPT_POST => true,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
-            CURLOPT_TIMEOUT => self::TIMEOUT,
+            CURLOPT_CONNECTTIMEOUT => $this->connectTimeout,
+            CURLOPT_TIMEOUT => $this->timeout,
             CURLOPT_HTTPHEADER => [
                 "Authorization: Bearer {$token}",
                 'Content-Type: application/json',
@@ -206,8 +209,8 @@ class HttpClient implements Client
         curl_setopt_array($ch, [
             CURLOPT_URL => $this->authUrl,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
-            CURLOPT_TIMEOUT => self::TIMEOUT,
+            CURLOPT_CONNECTTIMEOUT => $this->connectTimeout,
+            CURLOPT_TIMEOUT => $this->timeout,
             CURLOPT_CUSTOMREQUEST => 'GET',
             CURLOPT_HTTPHEADER => [
                 'Content-type: application/json',
