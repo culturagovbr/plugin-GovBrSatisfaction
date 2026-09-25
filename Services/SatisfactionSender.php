@@ -61,7 +61,7 @@ class SatisfactionSender
             $request->sendStatus = SatisfactionRequest::STATUS_NO_CPF;
             $request->save(true);
 
-            $this->close($dispatch, $request->sendStatus);
+            $this->close($request);
 
             return SendOutcome::Done;
         }
@@ -87,7 +87,7 @@ class SatisfactionSender
             $request->save(true);
 
             $this->record($dispatch, $number, $result, null, $startedAt);
-            $this->close($dispatch, $request->sendStatus);
+            $this->close($request);
 
             return SendOutcome::Done;
         }
@@ -139,7 +139,7 @@ class SatisfactionSender
             return SendOutcome::Retry;
         }
 
-        $this->close($dispatch, $request->sendStatus);
+        $this->close($request);
 
         return SendOutcome::Done;
     }
@@ -266,12 +266,10 @@ class SatisfactionSender
         ));
     }
 
-    /** Encerra o envio na situação da solicitação. */
-    private function close(?SatisfactionDispatch $dispatch, string $state): void
+    /** Encerra os envios pendentes da solicitação na situação dela. */
+    private function close(SatisfactionRequest $request): void
     {
-        if ($dispatch) {
-            $this->log->guard(fn() => $this->log->finish($dispatch, $state));
-        }
+        $this->log->guard(fn() => $this->log->finishPending($request, $request->sendStatus));
     }
 
     /** Resumo mascarado, no tamanho da coluna. */
