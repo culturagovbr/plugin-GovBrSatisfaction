@@ -4,8 +4,10 @@ Consulta das solicitações de pesquisa de satisfação disparadas ao gov.br pel
 
 - Os contadores do topo filtram por situação (clicar de novo limpa) e ignoram os filtros aplicados: são o retrato do conjunto.
 - "Disparado" significa que o Mapa enviou, **não** que o cidadão recebeu o e-mail.
-- Cada linha abre o conteúdo enviado e a resposta do BSC (`GET_payload`), com CPF, nome e e-mail mascarados.
-- Linhas `recusado` têm a ação **Devolver à fila** (`POST_requeue`), a única escrita da tela.
+- A coluna "Pessoa" mostra o nome do agente ou, sem ele, o e-mail mascarado.
+- Cada linha abre o conteúdo enviado e a resposta do BSC (`GET_payload`), com CPF, nome, e-mail e IP mascarados.
+- Linhas `recusado` e `sem-cpf` têm **Devolver à fila** e pendentes que aguardam retentativa têm **Tentar agora**, as duas em `POST_requeue`.
+- Com o filtro `recusado`, a barra do lote oferece **Devolver todas à fila** (`POST_requeueAll`).
 
 Não recebe propriedades.
 

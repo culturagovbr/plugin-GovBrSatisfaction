@@ -348,7 +348,7 @@ app.component('govbr-satisfaction-requests', {
 
         quando(timestamp) {
             if (!timestamp) {
-                return '—';
+                return '-';
             }
 
             const data = new McDate(new Date(timestamp * 1000));

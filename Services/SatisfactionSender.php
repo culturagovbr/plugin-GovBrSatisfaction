@@ -69,7 +69,7 @@ class SatisfactionSender
             ));
 
             $request->sendStatus = SatisfactionRequest::STATUS_REJECTED;
-            $request->sendDetail = 'erro ao montar o corpo: ' . $e->getMessage();
+            $request->sendDetail = 'erro ao montar o corpo: ' . Mask::forLogText($e->getMessage());
             $request->save(true);
 
             return SendOutcome::Done;
@@ -94,10 +94,10 @@ class SatisfactionSender
         }
 
         $request->sendHttpStatus = $result->status;
-        $request->sendResponse = $result->body;
+        $request->sendResponse = $result->body === null ? null : Mask::forBody($result->body);
         $request->sendDetail = $result->detail === null
             ? null
-            : mb_substr($result->detail, 0, Result::DETAIL_MAX);
+            : mb_substr(Mask::forLogText($result->detail), 0, Result::DETAIL_MAX);
 
         if ($result->outcome === Outcome::Sent) {
             $request->sendStatus = SatisfactionRequest::STATUS_SENT;
@@ -201,7 +201,7 @@ class SatisfactionSender
         $ids = array_map(fn(SatisfactionRequest $r) => $r->id, $requests);
 
         $app->log->info(sprintf(
-            '[GovBrSatisfaction] %d solicitações devolvidas à fila pelo usuário %d, espaçadas de %d s (ids %d–%d)',
+            '[GovBrSatisfaction] %d solicitações devolvidas à fila pelo usuário %d, espaçadas de %d s (ids %d a %d)',
             count($requests),
             $by->id,
             SendSatisfactionRequestJob::BULK_INTERVAL,
