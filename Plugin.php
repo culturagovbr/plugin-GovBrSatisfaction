@@ -38,10 +38,10 @@ class Plugin extends \MapasCulturais\Plugin
 
     function __construct(array $config = [])
     {
-        $servicos = [];
+        $services = [];
 
-        foreach (Servico::cases() as $servico) {
-            $servicos[$servico->value] = self::strEnv($servico->envVar());
+        foreach (Service::cases() as $service) {
+            $services[$service->value] = self::strEnv($service->envVar());
         }
 
         $config += [
@@ -56,8 +56,8 @@ class Plugin extends \MapasCulturais\Plugin
             'bscUrl' => env('AVALIACAO_BSC_URL', ''),
             'orgao' => self::strEnv('AVALIACAO_ORGAO'),
 
-            // id de cada serviço no Portal, pela chave do enum Servico
-            'servicos' => $servicos,
+            // id de cada serviço no Portal, pela chave do enum Service
+            'servicos' => $services,
 
             // credenciais RCV_BSC_*
             'bscAuthUrl' => env('RCV_BSC_AUTH_TOKEN', ''),
@@ -112,7 +112,7 @@ class Plugin extends \MapasCulturais\Plugin
         }
 
         $plugin = $this;
-        $entities = implode('|', Servico::entityTypes());
+        $entities = implode('|', Service::entityTypes());
 
         // Publicação: transição para ENABLED.
         $app->hook("entity(<<{$entities}>>).setStatus(" . Entity::STATUS_ENABLED . ')', function () use ($plugin) {
@@ -140,11 +140,11 @@ class Plugin extends \MapasCulturais\Plugin
         });
 
         // Cadastrar-se: confirmação do e-mail.
-        $chaveConta = $this->config['accountActiveMetadata'];
+        $activeKey = $this->config['accountActiveMetadata'];
 
-        $app->hook('entity(UserMeta).save:finish', function () use ($plugin, $chaveConta) {
+        $app->hook('entity(UserMeta).save:finish', function () use ($plugin, $activeKey) {
             /** @var \MapasCulturais\Entities\UserMeta $this */
-            if ($this->key !== $chaveConta || (string) $this->value !== '1') {
+            if ($this->key !== $activeKey || (string) $this->value !== '1') {
                 return;
             }
 
@@ -152,7 +152,7 @@ class Plugin extends \MapasCulturais\Plugin
                 return;
             }
 
-            $plugin->registry()->registerRequest($this->owner, Servico::Cadastro, null);
+            $plugin->registry()->registerRequest($this->owner, Service::Registration, null);
         });
 
         $this->registerPanel($app);
@@ -247,15 +247,15 @@ class Plugin extends \MapasCulturais\Plugin
             $missing[] = 'AVALIACAO_SUBSITE_ID';
         }
 
-        foreach (['bscAuthUrl' => 'RCV_BSC_AUTH_TOKEN', 'bscClientId' => 'RCV_BSC_CLIENT_ID', 'bscClientSecret' => 'RCV_BSC_CLIENT_SECRET'] as $chave => $variavel) {
-            if (!$this->config[$chave]) {
-                $missing[] = $variavel;
+        foreach (['bscAuthUrl' => 'RCV_BSC_AUTH_TOKEN', 'bscClientId' => 'RCV_BSC_CLIENT_ID', 'bscClientSecret' => 'RCV_BSC_CLIENT_SECRET'] as $key => $variable) {
+            if (!$this->config[$key]) {
+                $missing[] = $variable;
             }
         }
 
-        foreach (Servico::cases() as $servico) {
-            if (!($this->config['servicos'][$servico->value] ?? '')) {
-                $missing[] = $servico->envVar();
+        foreach (Service::cases() as $service) {
+            if (!($this->config['servicos'][$service->value] ?? '')) {
+                $missing[] = $service->envVar();
             }
         }
 

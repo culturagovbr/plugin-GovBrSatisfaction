@@ -8,14 +8,14 @@ namespace GovBrSatisfaction;
  *
  * @package GovBrSatisfaction
  */
-enum Servico: string
+enum Service: string
 {
-    case Cadastro = 'cadastro';
-    case Coletivo = 'coletivo';
-    case Oportunidade = 'oportunidade';
-    case Evento = 'evento';
-    case Espaco = 'espaco';
-    case Projeto = 'projeto';
+    case Registration = 'cadastro';
+    case Collective = 'coletivo';
+    case Opportunity = 'oportunidade';
+    case Event = 'evento';
+    case Space = 'espaco';
+    case Project = 'projeto';
 
     /** Variável de ambiente com o id do serviço no Portal. */
     public function envVar(): string
@@ -27,20 +27,20 @@ enum Servico: string
     public function entityType(): ?string
     {
         return match ($this) {
-            self::Coletivo => 'Agent',
-            self::Evento => 'Event',
-            self::Espaco => 'Space',
-            self::Projeto => 'Project',
-            self::Oportunidade => 'Opportunity',
-            self::Cadastro => null,
+            self::Collective => 'Agent',
+            self::Event => 'Event',
+            self::Space => 'Space',
+            self::Project => 'Project',
+            self::Opportunity => 'Opportunity',
+            self::Registration => null,
         };
     }
 
     public static function fromEntityType(string $entityType): ?self
     {
-        foreach (self::cases() as $servico) {
-            if ($servico->entityType() === $entityType) {
-                return $servico;
+        foreach (self::cases() as $service) {
+            if ($service->entityType() === $entityType) {
+                return $service;
             }
         }
 

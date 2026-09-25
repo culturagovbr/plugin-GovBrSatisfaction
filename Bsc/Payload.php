@@ -15,7 +15,7 @@ class Payload
     const SISTEMA_SOLICITANTE = 'Mapa da Cultura';
 
     /** Loopback quando não há requisição. */
-    const IP_DESCONHECIDO = '127.0.0.1';
+    const UNKNOWN_IP = '127.0.0.1';
 
     /** O contrato pede "dd/mm/aaaa". */
     const DATE_FORMAT = 'd/m/Y';
@@ -39,7 +39,7 @@ class Payload
     public static function build(SatisfactionRequest $request, string $cpf): array
     {
         $user = $request->user;
-        $data = $request->dataEtapa->format(self::DATE_FORMAT);
+        $date = $request->dataEtapa->format(self::DATE_FORMAT);
 
         return [
             'cacheEvict' => false,
@@ -49,13 +49,13 @@ class Payload
 
             'cpfConsulta' => $cpf,
 
-            'dataEtapa' => $data,
-            'dataSituacaoEtapa' => $data,
+            'dataEtapa' => $date,
+            'dataSituacaoEtapa' => $date,
             'email' => (string) $user->email,
             'etapa' => $request->etapa,
-            'ipOrigem' => $request->ipOrigem ?: self::IP_DESCONHECIDO,
-            'ipUsuario' => $request->ipUsuario ?: self::IP_DESCONHECIDO,
-            'nomeCidadao' => self::nome($user),
+            'ipOrigem' => $request->ipOrigem ?: self::UNKNOWN_IP,
+            'ipUsuario' => $request->ipUsuario ?: self::UNKNOWN_IP,
+            'nomeCidadao' => self::name($user),
             'orgao' => (string) $request->orgao,
             'servico' => $request->servico,
             'sistemaSolicitante' => self::SISTEMA_SOLICITANTE,
@@ -86,7 +86,7 @@ class Payload
         return null;
     }
 
-    private static function nome(User $user): string
+    private static function name(User $user): string
     {
         return (string) $user->profile->name;
     }

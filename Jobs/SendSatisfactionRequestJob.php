@@ -49,8 +49,8 @@ class SendSatisfactionRequestJob extends JobType
         $app->disableAccessControl();
 
         $retry = false;
-        $retentarLinhas = false;
-        $falhas = (int) ($job->falhas ?? 0);
+        $retryRows = false;
+        $failures = (int) ($job->failures ?? 0);
 
         // Um cliente para a varredura inteira: o HttpClient guarda o token.
         $client = $plugin->client();
@@ -65,7 +65,7 @@ class SendSatisfactionRequestJob extends JobType
 
             foreach ($pending as $request) {
                 try {
-                    $desfecho = $sender->send($request, $client);
+                    $outcome = $sender->send($request, $client);
                 } catch (\Throwable $e) {
                     $app->log->error(sprintf(
                         '[GovBrSatisfaction] falha ao processar a solicitação %d: %s',
@@ -78,14 +78,14 @@ class SendSatisfactionRequestJob extends JobType
 
                 // Só o transporte para a varredura; um 500 de uma linha é
                 // problema dela, e as outras seguem.
-                if ($desfecho === SendOutcome::RetryTransport) {
+                if ($outcome === SendOutcome::RetryTransport) {
                     $retry = true;
 
                     break;
                 }
 
-                if ($desfecho === SendOutcome::RetryRow) {
-                    $retentarLinhas = true;
+                if ($outcome === SendOutcome::RetryRow) {
+                    $retryRows = true;
                 }
             }
 
@@ -103,23 +103,23 @@ class SendSatisfactionRequestJob extends JobType
         // Sempre com replace: a varredura em execução ainda está na tabela e
         // sem replace o core a devolveria em vez de enfileirar outra.
         if ($retry) {
-            $falhas++;
-            $quando = self::BACKOFF[min($falhas, count(self::BACKOFF) - 1)];
+            $failures++;
+            $when = self::BACKOFF[min($failures, count(self::BACKOFF) - 1)];
 
             $app->log->warning(sprintf(
                 '[GovBrSatisfaction] transporte indisponível; próxima varredura %s',
-                $quando
+                $when
             ));
 
-            $app->enqueueOrReplaceJob(self::SLUG, ['falhas' => $falhas], $quando);
+            $app->enqueueOrReplaceJob(self::SLUG, ['failures' => $failures], $when);
         } elseif (count($pending) === self::BATCH_SIZE) {
             // Lote cheio escoa já, mesmo com linha em 500 no meio: o adiamento
             // dela não pode frear as outras.
-            $app->enqueueOrReplaceJob(self::SLUG, ['falhas' => 0]);
-        } elseif ($retentarLinhas) {
+            $app->enqueueOrReplaceJob(self::SLUG, ['failures' => 0]);
+        } elseif ($retryRows) {
             // Transporte de pé: a contagem zera. Um minuto basta para o caso
             // conhecido (auditoria do BSC falhando após gravar) convergir.
-            $app->enqueueOrReplaceJob(self::SLUG, ['falhas' => 0], self::BACKOFF[1]);
+            $app->enqueueOrReplaceJob(self::SLUG, ['failures' => 0], self::BACKOFF[1]);
         }
 
         return true;

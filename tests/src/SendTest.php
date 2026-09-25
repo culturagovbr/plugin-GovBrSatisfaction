@@ -165,7 +165,7 @@ class SendTest extends TestCase
         $job = $jobs[0];
         $metadata = json_decode((string) $job['metadata'], true);
 
-        $this->assertSame(1, $metadata['falhas'] ?? null, 'a publicação anulou a contagem de falhas da varredura');
+        $this->assertSame(1, $metadata['failures'] ?? null, 'a publicação anulou a contagem de falhas da varredura');
         $this->assertGreaterThan(
             $job['create_timestamp'],
             $job['next_execution_timestamp'],

@@ -2,10 +2,10 @@
 
 namespace Tests\GovBrSatisfaction;
 
-use GovBrSatisfaction\Bsc\Mascara;
+use GovBrSatisfaction\Bsc\Mask;
 
 /** Máscara de dado pessoal. */
-class MascaraTest extends TestCase
+class MaskTest extends TestCase
 {
     const PAYLOAD = [
         'cpfCidadao' => '77689062768',
@@ -19,7 +19,7 @@ class MascaraTest extends TestCase
     /** Máscara parcial na tela. */
     function testParaTelaEhParcial()
     {
-        $mascarado = Mascara::paraTela(self::PAYLOAD);
+        $mascarado = Mask::forScreen(self::PAYLOAD);
 
         $this->assertSame('776.***.***-68', $mascarado['cpfCidadao']);
         $this->assertSame($mascarado['cpfCidadao'], $mascarado['cpfConsulta']);
@@ -31,9 +31,9 @@ class MascaraTest extends TestCase
 
     function testParaLogCobreTudo()
     {
-        $mascarado = Mascara::paraLog(self::PAYLOAD);
+        $mascarado = Mask::forLog(self::PAYLOAD);
 
-        foreach (Mascara::CAMPOS_PESSOAIS as $campo) {
+        foreach (Mask::PERSONAL_FIELDS as $campo) {
             $this->assertSame('***', $mascarado[$campo], "{$campo} vazou no log");
         }
 
@@ -44,18 +44,18 @@ class MascaraTest extends TestCase
 
     function testCpfForaDoFormatoSaiTodoCoberto()
     {
-        $this->assertSame('***', Mascara::cpf('123'));
-        $this->assertSame('***', Mascara::cpf(''));
+        $this->assertSame('***', Mask::cpf('123'));
+        $this->assertSame('***', Mask::cpf(''));
     }
 
     function testNomeDeUmaPalavraNaoGanhaAsteriscos()
     {
-        $this->assertSame('Maria', Mascara::nome('Maria'));
-        $this->assertSame('Maria ***', Mascara::nome('  Maria   da  Silva '));
+        $this->assertSame('Maria', Mask::name('Maria'));
+        $this->assertSame('Maria ***', Mask::name('  Maria   da  Silva '));
     }
 
     function testEmailSemArroba()
     {
-        $this->assertSame('m***', Mascara::email('maria'));
+        $this->assertSame('m***', Mask::email('maria'));
     }
 }

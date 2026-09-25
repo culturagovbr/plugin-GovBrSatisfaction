@@ -18,7 +18,7 @@ class FixtureClient implements Client
         $app->log->info(sprintf(
             '[GovBrSatisfaction] fixture: envio simulado para o serviço %s (nenhuma requisição HTTP foi feita) %s',
             $payload['servico'] ?? '?',
-            Payload::encode(Mascara::paraLog($payload))
+            Payload::encode(Mask::forLog($payload))
         ));
 
         return new Result(

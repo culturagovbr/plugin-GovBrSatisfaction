@@ -5,10 +5,7 @@ namespace GovBrSatisfaction\Bsc;
 use MapasCulturais\App;
 
 /**
- * Transporte real: POST /api/avaliacao/completa no BSC, autenticado como a
- * consulta de CNPJ (GET no endpoint de token, Bearer na chamada).
- *
- * A leitura da resposta fica em `interpretar()`, pura, para ter teste sem rede.
+ * Transporte real: token no gateway e POST /api/avaliacao/completa.
  *
  * @package GovBrSatisfaction
  */
@@ -18,7 +15,7 @@ class HttpClient implements Client
      * Erros de curl que acontecem depois de a requisição ter saído — os únicos
      * ambíguos. DNS, conexão e TLS falham antes de qualquer byte sair.
      */
-    const ERROS_APOS_DESPACHO = [
+    const ERRORS_AFTER_DISPATCH = [
         CURLE_PARTIAL_FILE,
         CURLE_OPERATION_TIMEDOUT,
         CURLE_GOT_NOTHING,
@@ -30,7 +27,7 @@ class HttpClient implements Client
     const TIMEOUT = 15;
 
     /** Corte do motivo lido do corpo, para o resumo. */
-    const MOTIVO_MAX = 200;
+    const REASON_MAX = 200;
 
     private readonly string $baseUrl;
 
@@ -53,9 +50,9 @@ class HttpClient implements Client
     {
         $app = App::i();
 
-        $reutilizado = $this->token !== null;
+        $reused = $this->token !== null;
 
-        if (!$reutilizado) {
+        if (!$reused) {
             $this->token = $this->token() ?: null;
         }
 
@@ -67,20 +64,20 @@ class HttpClient implements Client
             return new Result(Outcome::Retry, null, 'não foi possível obter token do BSC');
         }
 
-        $resultado = $this->post($payload, $token);
+        $result = $this->post($payload, $token);
 
         // Token reutilizado expirado: renova e refaz o POST.
-        if ($resultado->status === 401 && $reutilizado) {
+        if ($result->status === 401 && $reused) {
             $this->token = $this->token() ?: null;
 
-            $resultado = $this->token
+            $result = $this->token
                 ? $this->post($payload, $this->token)
                 : new Result(Outcome::Retry, null, 'não foi possível renovar o token do BSC');
         }
 
-        $this->registrarEmLog($resultado);
+        $this->log($result);
 
-        return $resultado;
+        return $result;
     }
 
     private function post(array $payload, string $token): Result
@@ -105,7 +102,7 @@ class HttpClient implements Client
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         curl_close($ch);
 
-        return self::interpretar($status, $body, $errno, $error);
+        return self::interpret($status, $body, $errno, $error);
     }
 
     /**
@@ -116,18 +113,18 @@ class HttpClient implements Client
      * @param int    $errno     `curl_errno()`; 0 sem erro de rede
      * @param string $curlError `curl_error()`, para o resumo
      */
-    public static function interpretar(int $status, string $body, int $errno = 0, string $curlError = ''): Result
+    public static function interpret(int $status, string $body, int $errno = 0, string $curlError = ''): Result
     {
         if ($errno !== 0) {
             // Após o despacho é ambíguo: melhor deixar de convidar que convidar duas vezes.
-            if (in_array($errno, self::ERROS_APOS_DESPACHO, true)) {
+            if (in_array($errno, self::ERRORS_AFTER_DISPATCH, true)) {
                 return new Result(Outcome::Sent, null, "falha de rede após o despacho: {$curlError}");
             }
 
             return new Result(Outcome::Retry, null, "falha de rede antes do despacho: {$curlError}");
         }
 
-        $body = self::limpar($body);
+        $body = self::strip($body);
 
         // Só 2xx é a API respondendo (200 e 201 documentados); 3xx é o gateway.
         if ($status >= 200 && $status < 300) {
@@ -139,58 +136,58 @@ class HttpClient implements Client
                 return new Result(Outcome::Rejected, $status, 'o BSC informou que o e-mail não foi enviado', $body);
             }
 
-            $protocolo = is_array($json) ? ($json['protocolo'] ?? null) : null;
+            $protocol = is_array($json) ? ($json['protocolo'] ?? null) : null;
 
-            return new Result(Outcome::Sent, $status, $protocolo ? "protocolo {$protocolo}" : null, $body);
+            return new Result(Outcome::Sent, $status, $protocol ? "protocolo {$protocol}" : null, $body);
         }
 
-        $motivo = self::motivo($body);
+        $reason = self::reason($body);
 
         // "Já enviada": enviado.
-        if ($motivo && mb_stripos($motivo, 'já enviada') !== false) {
-            return new Result(Outcome::Sent, $status, $motivo, $body);
+        if ($reason && mb_stripos($reason, 'já enviada') !== false) {
+            return new Result(Outcome::Sent, $status, $reason, $body);
         }
 
         // 4xx: credencial, permissão, serviço inexistente, payload inválido.
         if ($status >= 400 && $status < 500) {
-            return new Result(Outcome::Rejected, $status, $motivo, $body);
+            return new Result(Outcome::Rejected, $status, $reason, $body);
         }
 
         // 5xx, 3xx e 0 sem erro de curl: transitório.
-        $detalhe = $motivo ?? ($status ? "resposta inesperada HTTP {$status}" : 'sem resposta do BSC');
+        $detail = $reason ?? ($status ? "resposta inesperada HTTP {$status}" : 'sem resposta do BSC');
 
-        return new Result(Outcome::Retry, $status ?: null, $detalhe, $body);
+        return new Result(Outcome::Retry, $status ?: null, $detail, $body);
     }
 
     /**
      * Envio limpo não loga. Enviado por outro caminho ("já enviada", rede
      * após o despacho) é aviso; o resto é erro.
      */
-    private function registrarEmLog(Result $resultado): void
+    private function log(Result $result): void
     {
-        $limpo = $resultado->outcome === Outcome::Sent
-            && $resultado->status !== null && $resultado->status < 300;
+        $clean = $result->outcome === Outcome::Sent
+            && $result->status !== null && $result->status < 300;
 
-        if ($limpo) {
+        if ($clean) {
             return;
         }
 
-        $mensagem = sprintf(
+        $message = sprintf(
             '[GovBrSatisfaction] envio ao BSC: %s, HTTP %s%s',
-            $resultado->outcome->value,
-            $resultado->status ?? '-',
-            $resultado->detail ? " — {$resultado->detail}" : ''
+            $result->outcome->value,
+            $result->status ?? '-',
+            $result->detail ? " — {$result->detail}" : ''
         );
 
-        if ($resultado->outcome === Outcome::Sent) {
-            App::i()->log->warning($mensagem);
+        if ($result->outcome === Outcome::Sent) {
+            App::i()->log->warning($message);
         } else {
-            App::i()->log->error($mensagem);
+            App::i()->log->error($message);
         }
     }
 
     /** Remove a pilha de exceção do corpo; JSON que não é objeto passa intacto. */
-    private static function limpar(string $body): string
+    private static function strip(string $body): string
     {
         $json = json_decode($body, true);
 
@@ -198,21 +195,21 @@ class HttpClient implements Client
             return $body;
         }
 
-        foreach (['stackTrace', 'suppressed', 'cause', 'localizedMessage', 'instance', 'type'] as $chave) {
-            unset($json[$chave]);
+        foreach (['stackTrace', 'suppressed', 'cause', 'localizedMessage', 'instance', 'type'] as $key) {
+            unset($json[$key]);
         }
 
         return json_encode($json, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: $body;
     }
 
-    private static function motivo(string $body): ?string
+    private static function reason(string $body): ?string
     {
         $json = json_decode($body, true);
 
         if (is_array($json)) {
-            foreach (['detail', 'message', 'title'] as $chave) {
-                if (isset($json[$chave]) && is_string($json[$chave]) && $json[$chave] !== '') {
-                    return mb_substr($json[$chave], 0, self::MOTIVO_MAX);
+            foreach (['detail', 'message', 'title'] as $key) {
+                if (isset($json[$key]) && is_string($json[$key]) && $json[$key] !== '') {
+                    return mb_substr($json[$key], 0, self::REASON_MAX);
                 }
             }
 
@@ -221,7 +218,7 @@ class HttpClient implements Client
 
         $body = trim($body);
 
-        return $body === '' ? null : mb_substr($body, 0, self::MOTIVO_MAX);
+        return $body === '' ? null : mb_substr($body, 0, self::REASON_MAX);
     }
 
     private function token(): ?string
@@ -257,7 +254,7 @@ class HttpClient implements Client
             App::i()->log->warning(sprintf(
                 '[GovBrSatisfaction] o endpoint de token respondeu HTTP %d sem accessToken: %s',
                 $status,
-                mb_substr(trim($result), 0, self::MOTIVO_MAX)
+                mb_substr(trim($result), 0, self::REASON_MAX)
             ));
         }
 

@@ -5,7 +5,7 @@ namespace GovBrSatisfaction\Services;
 use GovBrSatisfaction\Entities\SatisfactionRequest;
 use GovBrSatisfaction\Jobs\SendSatisfactionRequestJob;
 use GovBrSatisfaction\Plugin;
-use GovBrSatisfaction\Servico;
+use GovBrSatisfaction\Service;
 use MapasCulturais\App;
 use MapasCulturais\Entity;
 use MapasCulturais\Entities\Agent;
@@ -19,11 +19,9 @@ use MapasCulturais\Entities\User;
 class SatisfactionRegistry
 {
     /**
-     * Entidades marcadas no gancho de status, aguardando o save:finish (antes
-     * dele não há id). Chave é o objeto, não spl_object_id: o PHP reaproveita
-     * esse número após a coleta.
+     * Entidades marcadas no gancho de status, aguardando o save:finish.
      *
-     * @var \SplObjectStorage<Entity,Servico>
+     * @var \SplObjectStorage<Entity,Service>
      */
     private \SplObjectStorage $marked;
 
@@ -34,9 +32,9 @@ class SatisfactionRegistry
 
     public function markForRegistration(Entity $entity): void
     {
-        $servico = Servico::fromEntityType($entity->getEntityType());
+        $service = Service::fromEntityType($entity->getEntityType());
 
-        if (!$servico) {
+        if (!$service) {
             return;
         }
 
@@ -44,7 +42,7 @@ class SatisfactionRegistry
             return;
         }
 
-        $this->marked[$entity] = $servico;
+        $this->marked[$entity] = $service;
     }
 
     /** Entidade que nasceu publicada. */
@@ -60,42 +58,42 @@ class SatisfactionRegistry
             return;
         }
 
-        $servico = $this->marked[$entity];
+        $service = $this->marked[$entity];
         unset($this->marked[$entity]);
 
         $user = $entity->ownerUser;
 
         if ($user instanceof User) {
-            $this->registerRequest($user, $servico, $entity);
+            $this->registerRequest($user, $service, $entity);
         }
     }
 
     /** Registra sem propagar exceção. */
-    public function registerRequest(User $user, Servico $servico, ?Entity $entity): void
+    public function registerRequest(User $user, Service $service, ?Entity $entity): void
     {
         try {
-            $this->registrar($user, $servico, $entity);
+            $this->doRegister($user, $service, $entity);
         } catch (\Throwable $e) {
             App::i()->log->error(sprintf(
                 '[GovBrSatisfaction] falha ao registrar o serviço %s do usuário %d: %s',
-                $servico->value,
+                $service->value,
                 $user->id,
                 $e->getMessage()
             ));
         }
     }
 
-    private function registrar(User $user, Servico $servico, ?Entity $entity): void
+    private function doRegister(User $user, Service $service, ?Entity $entity): void
     {
         $app = App::i();
         $config = $this->plugin->config;
 
         $subsite = $entity ? $entity->subsite : $app->getCurrentSubsite();
 
-        $recusa = $this->plugin->subsiteRejectionReason($subsite);
+        $reason = $this->plugin->subsiteRejectionReason($subsite);
 
-        if ($recusa) {
-            $app->log->debug("[GovBrSatisfaction] serviço concluído fora do portal atendido: {$recusa}");
+        if ($reason) {
+            $app->log->debug("[GovBrSatisfaction] serviço concluído fora do portal atendido: {$reason}");
 
             return;
         }
@@ -111,33 +109,33 @@ class SatisfactionRegistry
             return;
         }
 
-        $idServico = $config['servicos'][$servico->value] ?? '';
+        $serviceId = $config['servicos'][$service->value] ?? '';
 
-        if ($idServico === '') {
-            $app->log->warning("[GovBrSatisfaction] serviço {$servico->value} sem id configurado; nada registrado");
+        if ($serviceId === '') {
+            $app->log->warning("[GovBrSatisfaction] serviço {$service->value} sem id configurado; nada registrado");
 
             return;
         }
 
         // Uma por usuário e serviço.
-        $existente = $app->repo(SatisfactionRequest::class)->findOneBy([
+        $existing = $app->repo(SatisfactionRequest::class)->findOneBy([
             'user' => $user,
-            'servico' => $idServico,
+            'servico' => $serviceId,
         ]);
 
-        if ($existente) {
+        if ($existing) {
             return;
         }
 
         if (!$app->em->isOpen()) {
-            $app->log->error("[GovBrSatisfaction] unidade de trabalho fechada, serviço {$servico->value} não registrado");
+            $app->log->error("[GovBrSatisfaction] unidade de trabalho fechada, serviço {$service->value} não registrado");
 
             return;
         }
 
         $request = new SatisfactionRequest;
         $request->user = $user;
-        $request->servico = $idServico;
+        $request->servico = $serviceId;
         $request->subsite = $subsite;
 
         $request->objectType = $entity ? $entity->getEntityType() : null;
@@ -152,7 +150,7 @@ class SatisfactionRegistry
         $request->orgao = $config['orgao'] ?: null;
 
         $request->ipOrigem = $_SERVER['SERVER_ADDR'] ?? null;
-        $request->ipUsuario = $this->ipUsuario();
+        $request->ipUsuario = $this->userIp();
 
         $app->disableAccessControl();
 
@@ -169,25 +167,25 @@ class SatisfactionRegistry
     }
 
     /** IP da requisição, ou nulo. */
-    private function ipUsuario(): ?string
+    private function userIp(): ?string
     {
         $request = App::i()->request;
 
-        return $request ? self::primeiroIp($request->getIp()) : null;
+        return $request ? self::firstIp($request->getIp()) : null;
     }
 
     /** Primeiro IP do cabeçalho, até 45 chars. */
-    public static function primeiroIp(?string $valor): ?string
+    public static function firstIp(?string $value): ?string
     {
-        $ip = trim((string) strtok((string) $valor, ','));
+        $ip = trim((string) strtok((string) $value, ','));
 
         return $ip === '' ? null : mb_substr($ip, 0, 45);
     }
 
     private function isIndividualAgent(Agent $agent): bool
     {
-        $tipo = $agent->type?->id;
+        $type = $agent->type?->id;
 
-        return $tipo !== null && (int) $tipo === (int) $this->plugin->config['agentTypeIndividual'];
+        return $type !== null && (int) $type === (int) $this->plugin->config['agentTypeIndividual'];
     }
 }

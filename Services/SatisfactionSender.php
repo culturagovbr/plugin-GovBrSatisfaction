@@ -20,11 +20,7 @@ use MapasCulturais\Entities\User;
  */
 class SatisfactionSender
 {
-    /**
-     * Quantos 500 da aplicação antes de desistir. "Já enviada" chega como 500
-     * e é reconhecida pelo texto; se a redação mudar, este teto evita laço.
-     * Falha de transporte não conta — ver `contaTentativa()`.
-     */
+    /** 500 da aplicação antes de recusar. */
     const MAX_ATTEMPTS = 3;
 
     public function __construct(private readonly Plugin $plugin)
@@ -93,10 +89,10 @@ class SatisfactionSender
 
         // O cliente devolve Result para tudo. Se lançar, a linha já está
         // marcada como enviada e o job só relê pendentes — vira falha da linha.
-        $excecao = false;
+        $threw = false;
 
         try {
-            $resultado = $client->send($payload);
+            $result = $client->send($payload);
         } catch (\Throwable $e) {
             $app->log->error(sprintf(
                 '[GovBrSatisfaction] o cliente lançou ao enviar a solicitação %d: %s',
@@ -104,17 +100,17 @@ class SatisfactionSender
                 $e->getMessage()
             ));
 
-            $excecao = true;
-            $resultado = new Result(Outcome::Retry, null, 'erro no envio: ' . $e->getMessage());
+            $threw = true;
+            $result = new Result(Outcome::Retry, null, 'erro no envio: ' . $e->getMessage());
         }
 
-        $request->sendHttpStatus = $resultado->status;
-        $request->sendResponse = $resultado->body;
-        $request->sendDetail = $resultado->detail === null
+        $request->sendHttpStatus = $result->status;
+        $request->sendResponse = $result->body;
+        $request->sendDetail = $result->detail === null
             ? null
-            : mb_substr($resultado->detail, 0, Result::DETAIL_MAX);
+            : mb_substr($result->detail, 0, Result::DETAIL_MAX);
 
-        if ($resultado->outcome === Outcome::Sent) {
+        if ($result->outcome === Outcome::Sent) {
             $request->save(true);
 
             return SendOutcome::Done;
@@ -122,15 +118,15 @@ class SatisfactionSender
 
         $request->sendTimestamp = null;
 
-        $desistir = false;
-        $falhaDaLinha = $resultado->outcome === Outcome::Retry && ($excecao || self::contaTentativa($resultado));
+        $giveUp = false;
+        $rowFailed = $result->outcome === Outcome::Retry && ($threw || self::countsAsAttempt($result));
 
-        if ($falhaDaLinha) {
+        if ($rowFailed) {
             $request->sendAttempts = (int) $request->sendAttempts + 1;
-            $desistir = $request->sendAttempts >= self::MAX_ATTEMPTS;
+            $giveUp = $request->sendAttempts >= self::MAX_ATTEMPTS;
         }
 
-        if ($desistir) {
+        if ($giveUp) {
             $app->log->error(sprintf(
                 '[GovBrSatisfaction] solicitação %d recusada após %d tentativas sem sucesso',
                 $request->id,
@@ -138,7 +134,7 @@ class SatisfactionSender
             ));
         }
 
-        $request->sendStatus = $resultado->outcome === Outcome::Rejected || $desistir
+        $request->sendStatus = $result->outcome === Outcome::Rejected || $giveUp
             ? SatisfactionRequest::STATUS_REJECTED
             : SatisfactionRequest::STATUS_PENDING;
 
@@ -148,18 +144,18 @@ class SatisfactionSender
             return SendOutcome::Done;
         }
 
-        return $falhaDaLinha ? SendOutcome::RetryRow : SendOutcome::RetryTransport;
+        return $rowFailed ? SendOutcome::RetryRow : SendOutcome::RetryTransport;
     }
 
     /** Devolve à fila: zera tentativas, mantém a última resposta. */
-    public function requeue(SatisfactionRequest $request, User $por): void
+    public function requeue(SatisfactionRequest $request, User $by): void
     {
         $app = App::i();
 
         $app->log->info(sprintf(
             '[GovBrSatisfaction] solicitação %d devolvida à fila pelo usuário %d (estava %s, HTTP %s: %s)',
             $request->id,
-            $por->id,
+            $by->id,
             $request->sendStatus,
             $request->sendHttpStatus ?? '-',
             $request->sendDetail ?? '-'
@@ -182,8 +178,8 @@ class SatisfactionSender
     }
 
     /** Só 500 conta como tentativa. */
-    private static function contaTentativa(Result $resultado): bool
+    private static function countsAsAttempt(Result $result): bool
     {
-        return $resultado->status === 500;
+        return $result->status === 500;
     }
 }

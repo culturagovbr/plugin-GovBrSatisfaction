@@ -2,7 +2,7 @@
 
 namespace GovBrSatisfaction\Controllers;
 
-use GovBrSatisfaction\Bsc\Mascara;
+use GovBrSatisfaction\Bsc\Mask;
 use GovBrSatisfaction\Bsc\Payload;
 use GovBrSatisfaction\Entities\SatisfactionRequest;
 use MapasCulturais\App;
@@ -14,7 +14,7 @@ use MapasCulturais\App;
  */
 class Requests extends \MapasCulturais\Controller
 {
-    const POR_PAGINA = 25;
+    const PER_PAGE = 25;
 
     /**
      * Página de solicitações, com filtros e totais.
@@ -27,54 +27,54 @@ class Requests extends \MapasCulturais\Controller
 
         $app = App::i();
 
-        $pagina = max(1, (int) ($this->data['pagina'] ?? 1));
+        $page = max(1, (int) ($this->data['pagina'] ?? 1));
 
         $qb = $app->em->createQueryBuilder()
             ->from(SatisfactionRequest::class, 'r')
             ->join('r.user', 'u')
             ->leftJoin('u.profile', 'a');
 
-        foreach (['situacao' => 'sendStatus', 'servico' => 'servico'] as $campo => $propriedade) {
-            $valor = $this->data[$campo] ?? '';
+        foreach (['situacao' => 'sendStatus', 'servico' => 'servico'] as $field => $property) {
+            $value = $this->data[$field] ?? '';
 
-            if (is_string($valor) && $valor !== '') {
-                $qb->andWhere("r.{$propriedade} = :{$campo}")->setParameter($campo, $valor);
+            if (is_string($value) && $value !== '') {
+                $qb->andWhere("r.{$property} = :{$field}")->setParameter($field, $value);
             }
         }
 
         $total = (int) (clone $qb)->select('COUNT(r.id)')->getQuery()->getSingleScalarResult();
 
-        $registros = (clone $qb)
+        $records = (clone $qb)
             ->select('r.id, r.servico, r.sendStatus, r.objectType, r.objectId,
                       r.createTimestamp, r.sendTimestamp, r.sendHttpStatus, r.sendDetail,
                       r.sendAttempts, u.id AS userId, u.email, a.name AS agente')
             ->orderBy('r.createTimestamp', 'DESC')
             ->addOrderBy('r.id', 'DESC')
-            ->setFirstResult(($pagina - 1) * self::POR_PAGINA)
-            ->setMaxResults(self::POR_PAGINA)
+            ->setFirstResult(($page - 1) * self::PER_PAGE)
+            ->setMaxResults(self::PER_PAGE)
             ->getQuery()
             ->getResult();
 
         // Totais sem filtro.
-        $totais = [];
+        $totals = [];
 
-        $contagens = $app->em->createQueryBuilder()
+        $counts = $app->em->createQueryBuilder()
             ->select('r.sendStatus AS situacao, COUNT(r.id) AS n')
             ->from(SatisfactionRequest::class, 'r')
             ->groupBy('r.sendStatus')
             ->getQuery()
             ->getResult();
 
-        foreach ($contagens as $linha) {
-            $totais[$linha['situacao']] = (int) $linha['n'];
+        foreach ($counts as $row) {
+            $totals[$row['situacao']] = (int) $row['n'];
         }
 
         $this->json([
-            'registros' => array_map([$this, 'formatar'], $registros),
+            'registros' => array_map([$this, 'formatar'], $records),
             'total' => $total,
-            'pagina' => $pagina,
-            'paginas' => (int) ceil($total / self::POR_PAGINA),
-            'totais' => $totais,
+            'pagina' => $page,
+            'paginas' => (int) ceil($total / self::PER_PAGE),
+            'totais' => $totals,
         ]);
     }
 
@@ -99,10 +99,10 @@ class Requests extends \MapasCulturais\Controller
 
         $plugin = $this->plugin();
 
-        $enviado = $request->sendPayload ? json_decode($request->sendPayload, true) : null;
+        $sent = $request->sendPayload ? json_decode($request->sendPayload, true) : null;
 
-        if (is_array($enviado)) {
-            $this->conteudo($request, payload: $enviado, reconstruido: false);
+        if (is_array($sent)) {
+            $this->respondContent($request, payload: $sent, preview: false);
 
             return;
         }
@@ -110,20 +110,20 @@ class Requests extends \MapasCulturais\Controller
         $cpf = Payload::cpf($request->user, $plugin->config['metadataFieldCPF']);
 
         if (!$cpf) {
-            $this->conteudo($request, payload: null, reconstruido: true, motivo: \MapasCulturais\i::__('Sem CPF no cadastro: não há conteúdo a enviar.'));
+            $this->respondContent($request, payload: null, preview: true, reason: \MapasCulturais\i::__('Sem CPF no cadastro: não há conteúdo a enviar.'));
 
             return;
         }
 
-        $this->conteudo($request, payload: Payload::build($request, $cpf), reconstruido: true);
+        $this->respondContent($request, payload: Payload::build($request, $cpf), preview: true);
     }
 
-    protected function conteudo(SatisfactionRequest $request, ?array $payload, bool $reconstruido, ?string $motivo = null): void
+    protected function respondContent(SatisfactionRequest $request, ?array $payload, bool $preview, ?string $reason = null): void
     {
         $this->json([
-            'payload' => $payload === null ? null : Mascara::paraTela($payload),
-            'reconstruido' => $reconstruido,
-            'motivo' => $motivo,
+            'payload' => $payload === null ? null : Mask::forScreen($payload),
+            'reconstruido' => $preview,
+            'motivo' => $reason,
             'resposta' => $request->sendResponse,
         ]);
     }
@@ -182,42 +182,42 @@ class Requests extends \MapasCulturais\Controller
 
         $plugin = $this->plugin();
 
-        $servicos = [];
+        $services = [];
 
-        foreach ($plugin->config['servicos'] as $chave => $id) {
+        foreach ($plugin->config['servicos'] as $key => $id) {
             if ($id !== '') {
-                $servicos[] = ['id' => (string) $id, 'chave' => $chave];
+                $services[] = ['id' => (string) $id, 'chave' => $key];
             }
         }
 
         $this->json([
             'devMode' => $plugin->isDevMode(),
             'faltando' => $plugin->missingConfig(),
-            'servicos' => $servicos,
+            'servicos' => $services,
         ]);
     }
 
     /**
-     * @param array $registro
+     * @param array $record
      * @return array
      */
-    protected function formatar(array $registro): array
+    protected function formatar(array $record): array
     {
-        $tipo = $registro['objectType'];
-        $tipo = $tipo && str_contains($tipo, '\\') ? substr(strrchr($tipo, '\\'), 1) : $tipo;
+        $type = $record['objectType'];
+        $type = $type && str_contains($type, '\\') ? substr(strrchr($type, '\\'), 1) : $type;
 
         return [
-            'id' => (int) $registro['id'],
-            'servico' => (string) $registro['servico'],
-            'situacao' => $registro['sendStatus'],
-            'pessoa' => $registro['agente'] ?: $registro['email'],
-            'userId' => (int) $registro['userId'],
-            'origem' => $tipo ? $tipo . ' #' . (int) $registro['objectId'] : null,
-            'registrada' => $registro['createTimestamp']->getTimestamp(),
-            'disparada' => $registro['sendTimestamp']?->getTimestamp(),
-            'httpStatus' => $registro['sendHttpStatus'] === null ? null : (int) $registro['sendHttpStatus'],
-            'detalhe' => $registro['sendDetail'],
-            'tentativas' => (int) $registro['sendAttempts'],
+            'id' => (int) $record['id'],
+            'servico' => (string) $record['servico'],
+            'situacao' => $record['sendStatus'],
+            'pessoa' => $record['agente'] ?: $record['email'],
+            'userId' => (int) $record['userId'],
+            'origem' => $type ? $type . ' #' . (int) $record['objectId'] : null,
+            'registrada' => $record['createTimestamp']->getTimestamp(),
+            'disparada' => $record['sendTimestamp']?->getTimestamp(),
+            'httpStatus' => $record['sendHttpStatus'] === null ? null : (int) $record['sendHttpStatus'],
+            'detalhe' => $record['sendDetail'],
+            'tentativas' => (int) $record['sendAttempts'],
         ];
     }
 

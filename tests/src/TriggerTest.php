@@ -119,7 +119,7 @@ class TriggerTest extends TestCase
      */
     function testGuardaSoOPrimeiroIpDoCabecalho(?string $cabecalho, ?string $esperado)
     {
-        $this->assertSame($esperado, \GovBrSatisfaction\Services\SatisfactionRegistry::primeiroIp($cabecalho));
+        $this->assertSame($esperado, \GovBrSatisfaction\Services\SatisfactionRegistry::firstIp($cabecalho));
     }
 
     public static function cabecalhosDeIp(): array
