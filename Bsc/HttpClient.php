@@ -66,7 +66,7 @@ class HttpClient implements Client
                 : new Result(Outcome::Retry, null, 'não foi possível renovar o token do BSC');
         }
 
-        $this->log($result);
+        $this->log($result, Mask::personalValues($payload));
 
         return $result;
     }
@@ -163,8 +163,8 @@ class HttpClient implements Client
         return new Result(Outcome::Retry, $status ?: null, $detail, $body);
     }
 
-    /** Loga o resultado; envio limpo não loga. */
-    private function log(Result $result): void
+    /** Loga o resultado, mascarando os valores conhecidos; envio limpo não loga. */
+    private function log(Result $result, array $known): void
     {
         $clean = $result->outcome === Outcome::Sent
             && $result->status !== null && $result->status < 300;
@@ -177,7 +177,7 @@ class HttpClient implements Client
             '[GovBrSatisfaction] envio ao BSC: %s, HTTP %s%s',
             $result->outcome->value,
             $result->status ?? '-',
-            $result->detail ? ": " . Mask::forLogText($result->detail) : ''
+            $result->detail ? ": " . Mask::forLogText($result->detail, $known) : ''
         );
 
         if ($result->outcome === Outcome::Sent) {

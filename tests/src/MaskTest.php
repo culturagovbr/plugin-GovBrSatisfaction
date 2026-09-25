@@ -65,6 +65,12 @@ class MaskTest extends TestCase
             'e-mail' => ['email maria.silva@example.com inválido', 'email *** inválido'],
             'dentro de json' => ['{"detail":"cpf 77689062768","email":"a@b.com"}', '{"detail":"cpf ***","email":"***"}'],
             'protocolo com cpf' => ['protocolo 77689062768ABC', 'protocolo ***ABC'],
+            'cpf com separadores misturados' => ['cpf 776890627-68 inválido', 'cpf *** inválido'],
+            'cpf com espaços' => ['cpf 776 890 627 68', 'cpf ***'],
+            'ipv4' => ['origem 200.130.5.7', 'origem ***'],
+            'ipv6' => ['origem 2001:db8::1', 'origem ***'],
+            'método e horário ficam' => ['erro em Foo::bar() às 10:11:07', 'erro em Foo::bar() às 10:11:07'],
+            'número longo fica' => ['protocolo 20260925000123456', 'protocolo 20260925000123456'],
             'token bearer' => ['{"authorization":"Bearer abc.def-123"}', '{"authorization":"Bearer ***"}'],
             'bearer já mascarado' => ['Bearer ***', 'Bearer ***'],
             'sem dado pessoal' => ['no healthy upstream', 'no healthy upstream'],
@@ -119,6 +125,7 @@ class MaskTest extends TestCase
             'lista' => ['[{"email":"ana@example.com"}]', '[{"email":"a***@example.com"}]'],
             'corpo que não é json' => ['erro para maria.silva@example.com', 'erro para ***'],
             'sem dado pessoal fica igual' => ['{"status": "BAD_REQUEST", "codigoErro": 1790278898}', '{"status": "BAD_REQUEST", "codigoErro": 1790278898}'],
+            'cpf numérico fora de campo pessoal' => ['{"cpf":77689062768}', '{"cpf":"***"}'],
         ];
     }
 
@@ -143,5 +150,28 @@ class MaskTest extends TestCase
             'ipv6' => ['2001:db8:85a3::8a2e:370:7334', '2001:db8:***'],
             'inválido' => ['desconhecido', '***'],
         ];
+    }
+
+    /** Os valores reais do envio saem onde aparecerem, com qualquer caixa. */
+    function testValoresDoEnvioSaemDaResposta()
+    {
+        $corpo = '{"fieldErrors":[{"field":"nomeCidadao","rejectedValue":"Maria da Silva"},{"field":"ipOrigem","rejectedValue":"200.130.5.7"}],'
+            . '"message":"maria da silva já avaliou"}';
+
+        $this->assertSame(
+            '{"fieldErrors":[{"field":"nomeCidadao","rejectedValue":"***"},{"field":"ipOrigem","rejectedValue":"***"}],"message":"*** já avaliou"}',
+            Mask::forBody($corpo, Mask::personalValues(self::PAYLOAD))
+        );
+    }
+
+    function testValoresPessoaisIgnoramVaziosECamposComuns()
+    {
+        $this->assertSame(['Ana'], Mask::personalValues(['nomeCidadao' => 'Ana', 'email' => '  ', 'servico' => '13683']));
+    }
+
+    /** Valor curto demais não é trocado no texto. */
+    function testValorConhecidoCurtoFica()
+    {
+        $this->assertSame('Ana foi avisada', Mask::forLogText('Ana foi avisada', ['Ana']));
     }
 }
