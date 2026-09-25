@@ -33,12 +33,20 @@ class HttpClientTest extends TestCase
         $this->assertNull($r->detail);
     }
 
-    /** Recusa, não pendente: a avaliação já existe lá e repetir dá "já enviada". */
-    function testEmailNaoEnviadoEhRecusa()
+    function testEmailPendenteAindaEhEnvio()
     {
         $r = HttpClient::interpret(200, '{"emailEnviado":false,"protocolo":"X"}');
 
-        $this->assertSame(Outcome::Rejected, $r->outcome);
+        $this->assertSame(Outcome::Sent, $r->outcome);
+        $this->assertSame('protocolo X (e-mail pendente no BSC)', $r->detail);
+    }
+
+    function testEmailPendenteSemProtocoloAindaEhEnvio()
+    {
+        $r = HttpClient::interpret(200, '{"emailEnviado":false}');
+
+        $this->assertSame(Outcome::Sent, $r->outcome);
+        $this->assertSame('(e-mail pendente no BSC)', $r->detail);
     }
 
     /** 3xx é o gateway; o POST não chegou à API. */

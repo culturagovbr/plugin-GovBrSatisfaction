@@ -126,19 +126,15 @@ class HttpClient implements Client
 
         $body = self::strip($body);
 
-        // Só 2xx é a API respondendo (200 e 201 documentados); 3xx é o gateway.
+        // 2xx: enviado; emailEnviado=false vai para o detalhe.
         if ($status >= 200 && $status < 300) {
             $json = json_decode($body, true);
-
-            // `emailEnviado` falso é o BSC dizendo que não convidou. Recusado,
-            // não pendente: a avaliação já existe lá e repetir dá "já enviada".
-            if (is_array($json) && array_key_exists('emailEnviado', $json) && $json['emailEnviado'] === false) {
-                return new Result(Outcome::Rejected, $status, 'o BSC informou que o e-mail não foi enviado', $body);
-            }
-
             $protocol = is_array($json) ? ($json['protocolo'] ?? null) : null;
+            $emailPending = is_array($json) && array_key_exists('emailEnviado', $json) && $json['emailEnviado'] === false;
 
-            return new Result(Outcome::Sent, $status, $protocol ? "protocolo {$protocol}" : null, $body);
+            $detail = trim(($protocol ? "protocolo {$protocol}" : '') . ($emailPending ? ' (e-mail pendente no BSC)' : ''));
+
+            return new Result(Outcome::Sent, $status, $detail !== '' ? $detail : null, $body);
         }
 
         $reason = self::reason($body);
