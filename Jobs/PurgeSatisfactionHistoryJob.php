@@ -55,10 +55,25 @@ class PurgeSatisfactionHistoryJob extends JobType
         return $purged;
     }
 
-    protected function _execute(Job $job)
+    /** Expurga sem deixar o erro escapar; o job segue agendado para o dia seguinte. */
+    public function runSafely(): bool
     {
-        self::purgeNow();
+        try {
+            $this->purge();
+        } catch (\Throwable $e) {
+            App::i()->log->error('[GovBrSatisfaction] expurgo falhou; nova tentativa no próximo dia: ' . $e->getMessage());
+        }
 
         return true;
+    }
+
+    protected function purge(): int
+    {
+        return self::purgeNow();
+    }
+
+    protected function _execute(Job $job)
+    {
+        return $this->runSafely();
     }
 }
