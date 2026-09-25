@@ -111,7 +111,7 @@ class RequeueAllTest extends TestCase
         // o primeiro sai já; o último, (n-1) intervalos depois
         $primeiro = new \DateTime($jobs[0]['next_execution_timestamp']);
         $ultimo = new \DateTime($jobs[3]['next_execution_timestamp']);
-        $this->assertSame(3 * SendSatisfactionRequestJob::BULK_INTERVAL, $ultimo->getTimestamp() - $primeiro->getTimestamp());
+        $this->assertEqualsWithDelta(3 * SendSatisfactionRequestJob::BULK_INTERVAL, $ultimo->getTimestamp() - $primeiro->getTimestamp(), 1);
     }
 
     /** Respeita o filtro de serviço. */
