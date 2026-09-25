@@ -160,4 +160,27 @@ class RequeueAllTest extends TestCase
         $this->assertSame(1, $this->contar("send_status = 'sem-cpf'"));
         $this->assertSame(1, $this->contar("send_status = 'enviado'"));
     }
+
+    /** Com busca aplicada, devolve só as recusadas que a lista mostra. */
+    function testRespeitaABusca()
+    {
+        $this->recusadas();
+        $outra = (int) $this->conn()->fetchOne(
+            'SELECT user_id FROM govbr_satisfaction_request WHERE user_id <> ? LIMIT 1',
+            [$this->cidadao->id]
+        );
+
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+
+        $app = App::i();
+        $app->reset();
+        $app->run($this->requestFactory->GET('govbr-satisfaction-requests', 'index', [], ['situacao' => 'recusado', 'busca' => (string) $outra]), false);
+        $naLista = json_decode((string) $app->response->getBody(), true)['total'];
+
+        [$status, $corpo] = $this->devolverTodas(['servico' => '', 'busca' => (string) $outra]);
+
+        $this->assertSame(200, $status);
+        $this->assertSame(1, $naLista);
+        $this->assertSame($naLista, $corpo['devolvidas'], 'devolveu mais do que a lista mostrava');
+    }
 }
