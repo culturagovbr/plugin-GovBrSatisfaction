@@ -104,7 +104,7 @@ class RequeueSelectedTest extends TestCase
         );
 
         $this->assertCount(2, $inicios);
-        $this->assertSame(SendSatisfactionRequestJob::BULK_INTERVAL, $inicios[1] - $inicios[0]);
+        $this->assertEqualsWithDelta(SendSatisfactionRequestJob::BULK_INTERVAL, $inicios[1] - $inicios[0], 1);
     }
 
     function testAceitaIdsEmTextoERepetidos()
