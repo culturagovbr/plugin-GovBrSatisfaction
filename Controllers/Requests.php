@@ -4,18 +4,22 @@ namespace GovBrSatisfaction\Controllers;
 
 use GovBrSatisfaction\Bsc\Mask;
 use GovBrSatisfaction\Bsc\Payload;
+use GovBrSatisfaction\Entities\SatisfactionAttempt;
 use GovBrSatisfaction\Entities\SatisfactionRequest;
 use GovBrSatisfaction\Services\DispatchLog;
 use MapasCulturais\App;
 
 /**
- * Painel de solicitações: listagem, conteúdo enviado, devolver à fila.
+ * Painel de solicitações: listagem, conteúdo enviado, histórico de envios, devolver à fila.
  *
  * @package GovBrSatisfaction
  */
 class Requests extends \MapasCulturais\Controller
 {
     const PER_PAGE = 25;
+
+    /** Envios por página do histórico. */
+    const DISPATCHES_PER_PAGE = 20;
 
     /**
      * Página de solicitações, com filtros e totais.
@@ -128,6 +132,82 @@ class Requests extends \MapasCulturais\Controller
             'motivo' => $reason,
             'resposta' => $response === null ? null : Mask::forBody($response),
         ]);
+    }
+
+    /**
+     * Envios de uma solicitação, do mais novo ao mais antigo, com as tentativas.
+     *
+     * @return void
+     */
+    public function GET_dispatches()
+    {
+        $this->requireInstallationAdmin();
+
+        $app = App::i();
+
+        $request = $app->repo(SatisfactionRequest::class)->find((int) ($this->data['id'] ?? 0));
+
+        if (!$request) {
+            $this->json(['error' => \MapasCulturais\i::__('Solicitação não encontrada.')], 404);
+
+            return;
+        }
+
+        $log = new DispatchLog();
+        $page = max(1, (int) ($this->data['pagina'] ?? 1));
+        $total = $log->countByRequest($request->id);
+        $rows = $log->findByRequest(
+            $request->id,
+            ($page - 1) * self::DISPATCHES_PER_PAGE,
+            self::DISPATCHES_PER_PAGE
+        );
+
+        $this->json([
+            'envios' => array_map([$this, 'formatDispatch'], $rows),
+            'total' => $total,
+            'pagina' => $page,
+            'paginas' => (int) ceil($total / self::DISPATCHES_PER_PAGE),
+        ]);
+    }
+
+    /** Envio no formato da tela. */
+    protected function formatDispatch(array $row): array
+    {
+        $dispatch = $row['dispatch'];
+
+        return [
+            'uuid' => $dispatch->uuid,
+            'situacao' => $dispatch->state,
+            'origem' => $dispatch->origin,
+            'autor' => $row['userId'] === null ? null : ['id' => $row['userId']],
+            'criadoEm' => $dispatch->createTimestamp->getTimestamp(),
+            'finalizadoEm' => $dispatch->finishTimestamp?->getTimestamp(),
+            'tentativas' => array_map([$this, 'formatAttempt'], $row['attempts']),
+        ];
+    }
+
+    /** Tentativa no formato da tela, mascarada. */
+    protected function formatAttempt(SatisfactionAttempt $attempt): array
+    {
+        $payload = $attempt->payload === null ? null : json_decode($attempt->payload, true);
+
+        return [
+            'numero' => (int) $attempt->number,
+            'maximo' => (int) $attempt->maxAttempts,
+            'situacao' => $attempt->outcome,
+            'metodo' => $attempt->method,
+            'endpoint' => $attempt->endpoint,
+            'httpStatus' => $attempt->httpStatus === null ? null : (int) $attempt->httpStatus,
+            'detalhe' => $attempt->detail === null ? null : Mask::forLogText($attempt->detail),
+            'payload' => is_array($payload) ? Mask::forScreen($payload) : null,
+            'resposta' => $attempt->response === null ? null : Mask::forBody($attempt->response),
+            'respostaCortada' => (bool) $attempt->responseTruncated,
+            'cabecalhos' => $attempt->responseHeaders === null
+                ? null
+                : array_map(fn($line) => Mask::forLogText((string) $line), $attempt->responseHeaders),
+            'enviadoEm' => $attempt->sentAt->getTimestamp(),
+            'duracaoMs' => $attempt->durationMs === null ? null : (int) $attempt->durationMs,
+        ];
     }
 
     /** Situações que podem voltar à fila. */

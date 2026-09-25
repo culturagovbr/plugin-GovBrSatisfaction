@@ -178,6 +178,7 @@ class DispatchLog
             ->setParameter('request', $requestId)
             ->setFirstResult($skip)
             ->setMaxResults($limit)
+            ->setHint(\Doctrine\ORM\Query::HINT_REFRESH, true)
             ->getResult();
 
         if (!$rows) {
