@@ -152,13 +152,19 @@ app.component('govbr-satisfaction-requests', {
             }
         },
 
+        // recusada e sem CPF voltam à fila; pendente que já falhou antecipa a tentativa
         podeDevolver(registro) {
-            return ['recusado', 'sem-cpf'].includes(registro.situacao);
+            return ['recusado', 'sem-cpf'].includes(registro.situacao) || this.aguardaRetentativa(registro);
+        },
+
+        aguardaRetentativa(registro) {
+            return registro.situacao === 'pendente' && !!registro.detalhe;
         },
 
         // atualiza a linha e os totais no lugar, sem recarregar a lista acumulada
         async devolverAFila(registro, modal) {
             this.devolvendo = registro.id;
+            const antecipou = this.aguardaRetentativa(registro);
 
             try {
                 const response = await fetch(Utils.createUrl('govbr-satisfaction-requests', 'requeue'), {
@@ -182,7 +188,7 @@ app.component('govbr-satisfaction-requests', {
                 registro.disparada = data.disparada;
 
                 modal.close();
-                this.messages.success(this.text('devolvido'));
+                this.messages.success(this.text(antecipou ? 'tentarAgoraFeito' : 'devolvido'));
             } catch (error) {
                 this.messages.error(this.text('devolverErro'));
             } finally {

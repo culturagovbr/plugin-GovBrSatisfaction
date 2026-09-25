@@ -39,6 +39,12 @@ return [
     'devolverConfirmacaoSemCpf' => i::__('O CPF é lido de novo do cadastro. Se a pessoa já o preencheu, o envio acontece em seguida; senão, a solicitação volta a "Sem CPF".'),
     'devolvido' => i::__('Solicitação devolvida à fila. O envio acontece em seguida.'),
     'devolverErro' => i::__('Não foi possível devolver a solicitação à fila.'),
+
+    // pendente que já falhou e espera o intervalo de retentativa
+    'tentarAgora' => i::__('Tentar agora'),
+    'tentarAgoraTitulo' => i::__('Tentar agora?'),
+    'tentarAgoraConfirmacao' => i::__('O Mapa tenta enviar agora, sem esperar o intervalo de retentativa.'),
+    'tentarAgoraFeito' => i::__('Nova tentativa de envio iniciada.'),
     'tentativas' => i::__('%s resposta(s) 500 do BSC antes da recusa'),
 
     'respostaTitulo' => i::__('Resposta do BSC'),

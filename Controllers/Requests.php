@@ -135,8 +135,7 @@ class Requests extends \MapasCulturais\Controller
     ];
 
     /**
-     * Devolve à fila uma solicitação recusada ou sem CPF. Não altera regra
-     * nenhuma, só opera a fila.
+     * Devolve à fila (recusada, sem CPF) ou antecipa a tentativa (pendente com falha).
      *
      * @return void
      */
@@ -154,19 +153,23 @@ class Requests extends \MapasCulturais\Controller
             return;
         }
 
-        // Enviada já foi; pendente já está na fila.
-        if (!in_array($request->sendStatus, self::REQUEUE_STATUSES, true)) {
-            $this->json(['error' => \MapasCulturais\i::__('Só solicitações recusadas ou sem CPF podem voltar à fila.')], 400);
+        $waitingRetry = $request->sendStatus === SatisfactionRequest::STATUS_PENDING
+            && $request->sendDetail !== null;
+
+        if ($waitingRetry) {
+            $this->plugin()->sender()->retryNow($request, $app->user);
+        } elseif (in_array($request->sendStatus, self::REQUEUE_STATUSES, true)) {
+            $this->plugin()->sender()->requeue($request, $app->user);
+        } else {
+            $this->json(['error' => \MapasCulturais\i::__('Só solicitações recusadas, sem CPF ou pendentes com falha podem voltar à fila.')], 400);
 
             return;
         }
 
-        $this->plugin()->sender()->requeue($request, $app->user);
-
         $this->json([
             'id' => $request->id,
             'situacao' => $request->sendStatus,
-            'tentativas' => 0,
+            'tentativas' => (int) $request->sendAttempts,
             'disparada' => null,
         ]);
     }

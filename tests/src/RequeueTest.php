@@ -124,16 +124,39 @@ class RequeueTest extends TestCase
         $this->assertSituacao('enviado', $this->solicitacoes()[0], 'com CPF no cadastro, devolver à fila deveria enviar');
     }
 
-    /**
-     * Enviada já foi; pendente já está na fila.
-     *
-     * @dataProvider situacoesQueNaoVoltam
-     */
-    function testSoRecusadaVolta(string $situacao)
+    /** Pendente com falha: antecipa sem zerar tentativas. */
+    function testPendenteComFalhaTentaAgoraSemZerarTentativas()
     {
-        $id = $this->recusada();
+        $this->publicarEspaco();
+        $this->configurar(['client' => $this->clienteQueDevolve(
+            new \GovBrSatisfaction\Bsc\Result(\GovBrSatisfaction\Bsc\Outcome::Retry, 500, 'Erro interno', '{"message":"Erro interno"}')
+        )]);
+        $this->processarEnvios();
 
-        $this->alterarLinha($id, ['send_status' => $situacao]);
+        $linha = $this->solicitacoes()[0];
+        $this->assertSituacao('pendente', $linha);
+        $this->assertSame(1, (int) $linha['send_attempts']);
+
+        // BSC voltou; quem opera antecipa
+        $this->configurar(['client' => null]);
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+
+        [$status, $corpo] = $this->devolver((int) $linha['id']);
+
+        $this->assertSame(200, $status);
+        $this->assertSame('pendente', $corpo['situacao']);
+        $this->assertSame(1, $corpo['tentativas'], 'antecipar não pode zerar o contador');
+        $this->assertSame(1, (int) $this->solicitacoes()[0]['send_attempts']);
+
+        $this->processarEnvios();
+
+        $this->assertSituacao('enviado', $this->solicitacoes()[0]);
+    }
+
+    function testPendenteSemTentativaNaoVolta()
+    {
+        $this->publicarEspaco();
+        $id = (int) $this->solicitacoes()[0]['id'];
 
         $this->login($this->userDirector->createUser('saasSuperAdmin'));
 
@@ -141,15 +164,22 @@ class RequeueTest extends TestCase
 
         $this->assertSame(400, $status);
         $this->assertArrayHasKey('error', $corpo);
-        $this->assertSituacao($situacao, $this->solicitacoes()[0]);
     }
 
-    public static function situacoesQueNaoVoltam(): array
+    /** Enviada já foi. */
+    function testEnviadaNaoVolta()
     {
-        return [
-            'enviado' => ['enviado'],
-            'pendente' => ['pendente'],
-        ];
+        $id = $this->recusada();
+
+        $this->alterarLinha($id, ['send_status' => 'enviado']);
+
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+
+        [$status, $corpo] = $this->devolver($id);
+
+        $this->assertSame(400, $status);
+        $this->assertArrayHasKey('error', $corpo);
+        $this->assertSituacao('enviado', $this->solicitacoes()[0]);
     }
 
     function testSolicitacaoInexistente()

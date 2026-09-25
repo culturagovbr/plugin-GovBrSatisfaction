@@ -123,9 +123,10 @@ $this->import('
                                 <td class="govbr-satisfaction__date">{{ quando(registro.disparada) }}</td>
 
                                 <td class="govbr-satisfaction__table-actions">
-                                    <mc-modal classes="govbr-satisfaction__modal" :title="text('devolverTitulo')" v-if="podeDevolver(registro)">
+                                    <mc-modal classes="govbr-satisfaction__modal" :title="text(aguardaRetentativa(registro) ? 'tentarAgoraTitulo' : 'devolverTitulo')" v-if="podeDevolver(registro)">
                                         <template #default>
-                                            <p>{{ text(registro.situacao === 'sem-cpf' ? 'devolverConfirmacaoSemCpf' : 'devolverConfirmacao') }}</p>
+                                            <p v-if="aguardaRetentativa(registro)">{{ text('tentarAgoraConfirmacao') }}</p>
+                                            <p v-else>{{ text(registro.situacao === 'sem-cpf' ? 'devolverConfirmacaoSemCpf' : 'devolverConfirmacao') }}</p>
                                             <p class="govbr-satisfaction__nota" v-if="registro.situacao === 'recusado'">
                                                 {{ fmt('tentativas', registro.tentativas) }}
                                             </p>
@@ -146,7 +147,7 @@ $this->import('
 
                                         <template #button="modal">
                                             <button class="button button--primary-outline button--sm" @click="modal.open()">
-                                                {{ text('devolver') }}
+                                                {{ text(aguardaRetentativa(registro) ? 'tentarAgora' : 'devolver') }}
                                             </button>
                                         </template>
                                     </mc-modal>

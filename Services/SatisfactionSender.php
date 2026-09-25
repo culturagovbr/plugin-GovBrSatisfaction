@@ -165,6 +165,20 @@ class SatisfactionSender
         SendSatisfactionRequestJob::enqueue($request);
     }
 
+    /** Antecipa a tentativa, sem zerar tentativas. */
+    public function retryNow(SatisfactionRequest $request, User $by): void
+    {
+        App::i()->log->info(sprintf(
+            '[GovBrSatisfaction] solicitação %d: tentativa antecipada pelo usuário %d (HTTP %s: %s)',
+            $request->id,
+            $by->id,
+            $request->sendHttpStatus ?? '-',
+            Mask::forLogText($request->sendDetail ?? '-')
+        ));
+
+        SendSatisfactionRequestJob::enqueue($request);
+    }
+
     /** Só 500 conta como tentativa. */
     private static function countsAsAttempt(Result $result): bool
     {
