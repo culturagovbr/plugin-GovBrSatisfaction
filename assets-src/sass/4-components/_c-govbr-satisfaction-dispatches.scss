@@ -1,0 +1,203 @@
+/** Histórico de envios de uma solicitação. */
+.govbr-dispatches {
+    padding: 0.75rem 0;
+    font-size: var(--mc-font-size-xs);
+    text-align: left;
+
+    // acordeão sem fundo e na largura inteira
+    .mc-accordion {
+        width: 100%;
+        background: transparent;
+
+        &__header {
+            max-width: 100%;
+            padding: 0.625rem 0;
+        }
+
+        &__content {
+            max-width: 100%;
+            padding: 0.75rem 0 0;
+        }
+    }
+
+    // um cartão por envio
+    &__envio {
+        margin-bottom: 0.75rem;
+        padding: 0.5rem 1rem;
+        border: 1px solid var(--mc-gray-300, #ececec);
+        border-radius: var(--mc-border-radius-sm, 8px);
+        background: var(--mc-white, #fff);
+
+        &:last-of-type {
+            margin-bottom: 0;
+        }
+    }
+
+    &__titulo {
+        display: inline-flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    &__uuid {
+        font-family: monospace;
+        font-weight: var(--mc-font-semibold);
+        word-break: break-all;
+    }
+
+    &__muted {
+        color: var(--mc-gray-500, #4b4b53);
+    }
+
+    // ícone de situação
+    &__status {
+        flex-shrink: 0;
+        font-size: 1.25rem;
+        color: var(--mc-gray-500, #4b4b53);
+
+        &--enviado {
+            color: var(--mc-success-500, #4cb051);
+        }
+
+        &--retentar,
+        &--recusado,
+        &--sem-cpf {
+            color: var(--mc-danger-500, #b7292e);
+        }
+
+        &--pendente {
+            color: var(--mc-warning-500, #b04706);
+        }
+
+        &--simulado,
+        &--substituido {
+            color: #68686e;
+        }
+    }
+
+    // cada tentativa é um bloco fechado
+    &__tentativa {
+        margin-top: 0.75rem;
+        padding: 0 0.75rem;
+        border: 1px solid var(--mc-gray-300, #ececec);
+        border-radius: 4px;
+
+        .mc-accordion__content {
+            border-top: 1px solid var(--mc-gray-300, #ececec);
+            padding: 0.75rem 0;
+        }
+    }
+
+    &__meta {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 0.25rem 1rem;
+        margin: 0 0 0.75rem;
+
+        dt {
+            color: var(--mc-gray-500, #4b4b53);
+            font-weight: var(--mc-font-semibold);
+        }
+
+        dd {
+            margin: 0;
+            word-break: break-all;
+        }
+
+        @media (max-width: 768px) {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .mc-alert {
+        margin: 0 0 0.75rem;
+    }
+
+    // payload e resposta são gavetas clicáveis
+    &__gaveta {
+        margin-top: 0.5rem;
+
+        .mc-accordion__header {
+            padding: 0.625rem 0.75rem;
+            border: 1px solid var(--mc-gray-300, #ececec);
+            border-radius: 4px;
+            background: var(--mc-gray-100, #fafafa);
+
+            &:hover {
+                border-color: var(--mc-primary-500, #0a72e8);
+            }
+        }
+
+        .mc-accordion__content {
+            border-top: 0;
+            padding: 0.75rem 0 0;
+        }
+    }
+
+    // bloco de código com o botão de copiar sobreposto
+    &__codigo {
+        position: relative;
+        width: 100%;
+
+        & + & {
+            margin-top: 0.5rem;
+        }
+
+        &:hover .govbr-dispatches__copiar,
+        .govbr-dispatches__copiar:focus-visible {
+            opacity: 1;
+        }
+    }
+
+    &__copiar {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.25rem 0.5rem;
+        border: 1px solid #4b4b53;
+        border-radius: 4px;
+        background: #313135;
+        color: #fff;
+        cursor: pointer;
+        font-size: var(--mc-font-size-xxs);
+        opacity: 0;
+        transition: opacity 0.2s ease;
+
+        @media (max-width: 768px) {
+            opacity: 1;
+        }
+    }
+
+    // log longo rola dentro do bloco, cerca de 20 linhas
+    &__json {
+        width: 100%;
+        max-height: 24rem;
+        margin: 0;
+        overflow: auto;
+        padding: 0.75rem;
+        border-radius: 4px;
+        background: #313135;
+        color: #fff;
+        font-family: monospace;
+        font-size: var(--mc-font-size-xxs);
+        line-height: 1.5;
+        white-space: pre;
+    }
+
+    &__nota {
+        margin: 0 0 0.5rem;
+        color: var(--mc-gray-500, #4b4b53);
+    }
+
+    &__vazio p {
+        margin: 0 0 0.5rem;
+    }
+
+    &__mais {
+        margin-top: 1rem;
+    }
+}

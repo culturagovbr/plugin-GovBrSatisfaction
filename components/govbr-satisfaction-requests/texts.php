@@ -31,7 +31,7 @@ return [
     'nenhumComFiltro' => i::__('Nenhuma solicitação corresponde ao filtro aplicado.'),
     'limparFiltros' => i::__('Limpar filtros'),
 
-    'ver' => i::__('Ver conteúdo'),
+    'historico' => i::__('Histórico de envios'),
 
     'devolver' => i::__('Devolver à fila'),
     'devolverTitulo' => i::__('Devolver à fila?'),
@@ -57,15 +57,5 @@ return [
     'tentarAgoraFeito' => i::__('Nova tentativa de envio iniciada.'),
     'tentativas' => i::__('%s tentativa(s) sem sucesso antes da recusa'),
 
-    'respostaTitulo' => i::__('Resposta do BSC'),
-    'ultimaRespostaTitulo' => i::__('Última resposta do BSC'),
-    'copiar' => i::__('Copiar'),
-    'copiado' => i::__('Copiado!'),
-    'copiarErro' => i::__('Não foi possível copiar.'),
-    'payloadTitulo' => i::__('Conteúdo enviado ao BSC'),
-
-    'payloadPrevia' => i::__('Ainda não enviado. O conteúdo abaixo é uma prévia montada do cadastro atual e pode mudar até o envio.'),
-    'payloadPreviaSelo' => i::__('prévia'),
-    'payloadErro' => i::__('Não foi possível montar o conteúdo.'),
     'cadastroDaConta' => i::__('cadastro da conta'),
 ];
