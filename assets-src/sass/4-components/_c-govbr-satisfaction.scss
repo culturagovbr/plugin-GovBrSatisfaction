@@ -222,6 +222,17 @@
         width: 1%;
         white-space: nowrap;
         text-align: right;
+
+        // botões só de ícone, lado a lado
+        .button + .button,
+        .mc-modal + .mc-modal,
+        .button + .mc-modal {
+            margin-left: 0.25rem;
+        }
+
+        .iconify {
+            font-size: 1.125rem;
+        }
     }
 
     &__muted {

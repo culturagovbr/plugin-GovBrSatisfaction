@@ -146,16 +146,30 @@ $this->import('
                                         </template>
 
                                         <template #button="modal">
-                                            <button class="button button--primary-outline button--sm" @click="modal.open()">
-                                                {{ text(aguardaRetentativa(registro) ? 'tentarAgora' : 'devolver') }}
+                                            <button
+                                                class="button button--primary-noborder button--sm"
+                                                :title="text(aguardaRetentativa(registro) ? 'tentarAgora' : 'devolver')"
+                                                :aria-label="text(aguardaRetentativa(registro) ? 'tentarAgora' : 'devolver')"
+                                                @click="modal.open()">
+                                                <mc-icon :name="aguardaRetentativa(registro) ? 'govbr-satisfaction-retry' : 'govbr-satisfaction-requeue'"></mc-icon>
                                             </button>
                                         </template>
                                     </mc-modal>
 
                                     <mc-modal classes="govbr-satisfaction__modal" :title="text('payloadTitulo')">
                                         <template #button="{open}">
-                                            <button class="button button--primary-outline button--sm" @click="verPayload(registro.id, open)">
-                                                {{ text('ver') }}
+                                            <button
+                                                class="button button--primary-noborder button--sm"
+                                                :title="text('ver')"
+                                                :aria-label="text('ver')"
+                                                @click="verPayload(registro.id, open)">
+                                                <mc-icon name="eye-view"></mc-icon>
+                                            </button>
+                                        </template>
+
+                                        <template #actions="modal">
+                                            <button class="button button--primary button--md" @click="modal.close()">
+                                                <?= i::__('Fechar') ?>
                                             </button>
                                         </template>
 

@@ -199,6 +199,8 @@ class Plugin extends \MapasCulturais\Plugin
 
         $app->hook('component(mc-icon).iconset', function (&$iconset) {
             $iconset['govbr-satisfaction'] = 'material-symbols:rate-review-outline';
+            $iconset['govbr-satisfaction-requeue'] = 'material-symbols:replay';
+            $iconset['govbr-satisfaction-retry'] = 'material-symbols:send-outline';
         });
     }
 
