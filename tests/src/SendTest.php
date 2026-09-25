@@ -501,4 +501,39 @@ class SendTest extends TestCase
             'envio ficou pendente para sempre'
         );
     }
+
+    /** Três falhas internas seguidas não deixam a solicitação presa sem ação no painel. */
+    function testFalhasInternasSeguidasNaoPrendemASolicitacao()
+    {
+        $this->publicarEspaco();
+        (new \GovBrSatisfaction\Services\DispatchLog())->start(
+            App::i()->repo(\GovBrSatisfaction\Entities\SatisfactionRequest::class)->find((int) $this->solicitacoes()[0]['id']),
+            \GovBrSatisfaction\Entities\SatisfactionDispatch::ORIGIN_REGISTRATION
+        );
+
+        $quebrado = new class($this->plugin()) extends SatisfactionSender {
+            public function send(\GovBrSatisfaction\Entities\SatisfactionRequest $request, \GovBrSatisfaction\Bsc\Client $client): \GovBrSatisfaction\Services\SendOutcome
+            {
+                throw new \RuntimeException('falha interna');
+            }
+        };
+
+        $propriedade = new \ReflectionProperty(\GovBrSatisfaction\Plugin::class, 'sender');
+        $original = $propriedade->getValue($this->plugin());
+        $propriedade->setValue($this->plugin(), $quebrado);
+
+        try {
+            for ($i = 0; $i < SatisfactionSender::MAX_ATTEMPTS + 1; $i++) {
+                $this->processarEnvios();
+            }
+        } finally {
+            $propriedade->setValue($this->plugin(), $original);
+        }
+
+        $linha = $this->solicitacoes()[0];
+
+        $this->assertSituacao('recusado', $linha, 'solicitação presa: pendente, sem job e sem ação no painel');
+        $this->assertSame(\GovBrSatisfaction\Jobs\SendSatisfactionRequestJob::INTERNAL_ERROR, $linha['send_detail']);
+        $this->assertSame(['recusado'], array_column($this->envios(), 'state'));
+    }
 }
