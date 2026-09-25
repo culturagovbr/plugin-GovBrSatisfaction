@@ -37,6 +37,22 @@ return [
     'semPayload' => i::__('Nenhum conteúdo foi montado nesta tentativa.'),
     'semResposta' => i::__('Sem resposta do servidor.'),
 
+    // revelação do payload real
+    'revelar' => i::__('Revelar dados reais'),
+    'copiarReais' => i::__('Copiar dados reais'),
+    'ocultar' => i::__('Ocultar'),
+    'dadosReais' => i::__('Dados reais visíveis por mais %s.'),
+    'dadosReaisRotulo' => i::__('Payload com os dados reais'),
+    'janelaAberta' => i::__('Revelação liberada por mais %s. Cada revelação fica registrada.'),
+    'motivoTitulo' => i::__('Por que revelar os dados reais?'),
+    'motivoExplicacao' => i::__('O motivo fica registrado com seu usuário, a data e cada revelação ou cópia feita nos próximos %s minutos.'),
+    'motivo' => i::__('Motivo'),
+    'motivoDica' => i::__('Ex.: cidadão contestou o envio no chamado 123'),
+    'motivoContagem' => i::__('%s de %s caracteres mínimos'),
+    'liberar' => i::__('Liberar por %s minutos'),
+    'cancelar' => i::__('Cancelar'),
+    'revelarErro' => i::__('Não foi possível revelar os dados reais.'),
+
     'carregarMais' => i::__('Carregar mais'),
     'erroAoCarregar' => i::__('Não foi possível ler o histórico de envios.'),
     'copiar' => i::__('Copiar'),

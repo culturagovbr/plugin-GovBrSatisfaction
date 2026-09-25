@@ -16,6 +16,7 @@ use Doctrine\ORM\Mapping as ORM;
  * @property string|null $endpoint
  * @property int|null $httpStatus
  * @property string|null $payload
+ * @property string|null $payloadSealed
  * @property string|null $response
  * @property bool $responseTruncated
  * @property array|null $responseHeaders
@@ -100,6 +101,14 @@ class SatisfactionAttempt extends \MapasCulturais\Entity
      * @ORM\Column(name="payload", type="text", nullable=true)
      */
     protected $payload;
+
+    /**
+     * Corpo enviado, cifrado pelo PayloadVault.
+     *
+     * @var string|null
+     * @ORM\Column(name="payload_sealed", type="text", nullable=true)
+     */
+    protected $payloadSealed;
 
     /**
      * Corpo da resposta, mascarado.

@@ -17,6 +17,12 @@ app.component('govbr-satisfaction-dispatches', {
             type: Number,
             required: true,
         },
+
+        // do GET_status: cofre configurado e usuário na lista
+        revelacao: {
+            type: Object,
+            default: () => ({ disponivel: false, autorizado: false, motivoMinimo: 10, segundos: 120 }),
+        },
     },
 
     setup() {
@@ -38,11 +44,44 @@ app.component('govbr-satisfaction-dispatches', {
             carregandoMais: false,
             erro: null,
             previa: { payload: null, motivo: null },
+
+            // payload real por id da tentativa, só enquanto a janela está aberta
+            revelados: {},
+            janelaAte: 0,
+            agora: Date.now(),
+            pendente: null,
+            motivo: '',
+            liberando: false,
+            revelando: null,
         };
+    },
+
+    computed: {
+        restante() {
+            return Math.max(0, Math.ceil((this.janelaAte - this.agora) / 1000));
+        },
+
+        // "1:45"
+        relogio() {
+            const segundos = this.restante % 60;
+            return `${Math.floor(this.restante / 60)}:${String(segundos).padStart(2, '0')}`;
+        },
+
+        motivoCompleto() {
+            return this.motivo.trim().length >= this.revelacao.motivoMinimo;
+        },
+
+        janelaMinutos() {
+            return Math.round(this.revelacao.segundos / 60);
+        },
     },
 
     created() {
         this.carregar();
+    },
+
+    beforeUnmount() {
+        this.fecharJanela();
     },
 
     methods: {
@@ -103,6 +142,121 @@ app.component('govbr-satisfaction-dispatches', {
             if (response.ok) {
                 this.previa = { payload: data.payload, motivo: data.motivo };
             }
+        },
+
+        podeRevelar(tentativa) {
+            return tentativa.revelavel && this.revelacao.disponivel && this.revelacao.autorizado;
+        },
+
+        async postar(acao, corpo) {
+            const response = await fetch(Utils.createUrl('govbr-satisfaction-requests', acao), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                cache: 'no-store',
+                body: JSON.stringify(corpo),
+            });
+
+            return [response, await response.json().catch(() => ({}))];
+        },
+
+        // sem janela aberta, pede o motivo e repete depois
+        async pedir(tentativa, acao) {
+            if (this.restante <= 0) {
+                this.pedirMotivo(tentativa, acao);
+                return;
+            }
+
+            this.revelando = tentativa.id;
+
+            try {
+                const [response, data] = await this.postar('reveal', { tentativa: tentativa.id, acao });
+
+                // janela vencida no servidor
+                if (response.status === 403 && data.janela === false) {
+                    this.fecharJanela();
+                    this.pedirMotivo(tentativa, acao);
+                    return;
+                }
+
+                if (!response.ok) {
+                    this.messages.error(data.error || this.text('revelarErro'));
+                    return;
+                }
+
+                this.abrirJanela(data.ate);
+
+                if (acao === 'copiar') {
+                    await this.copiar(this.json(data.payload));
+                } else {
+                    this.revelados = { ...this.revelados, [tentativa.id]: data.payload };
+                }
+            } catch (error) {
+                this.messages.error(this.text('revelarErro'));
+            } finally {
+                this.revelando = null;
+            }
+        },
+
+        pedirMotivo(tentativa, acao) {
+            this.pendente = { tentativa, acao };
+            this.motivo = '';
+            this.$refs.motivo.open();
+        },
+
+        async liberar(modal) {
+            this.liberando = true;
+
+            try {
+                const [response, data] = await this.postar('unlockReveal', { motivo: this.motivo.trim() });
+
+                if (!response.ok) {
+                    this.messages.error(data.error || this.text('revelarErro'));
+                    return;
+                }
+
+                this.abrirJanela(data.ate);
+
+                const pendente = this.pendente;
+                modal.close();
+
+                if (pendente) {
+                    await this.pedir(pendente.tentativa, pendente.acao);
+                }
+            } catch (error) {
+                this.messages.error(this.text('revelarErro'));
+            } finally {
+                this.liberando = false;
+                this.motivo = '';
+            }
+        },
+
+        abrirJanela(ate) {
+            this.janelaAte = ate * 1000;
+            this.agora = Date.now();
+
+            if (!this.relogioId) {
+                this.relogioId = setInterval(() => {
+                    this.agora = Date.now();
+
+                    if (this.agora >= this.janelaAte) {
+                        this.fecharJanela();
+                    }
+                }, 1000);
+            }
+        },
+
+        // janela fechada: os dados reais saem da tela e da memória
+        fecharJanela() {
+            clearInterval(this.relogioId);
+            this.relogioId = null;
+            this.revelados = {};
+            this.janelaAte = 0;
+        },
+
+        ocultar(tentativa) {
+            const revelados = { ...this.revelados };
+            delete revelados[tentativa.id];
+            this.revelados = revelados;
         },
 
         falhou(tentativa) {

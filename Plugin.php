@@ -75,6 +75,12 @@ class Plugin extends \MapasCulturais\Plugin
             // tipo de agente que não conta como coletivo
             'agentTypeIndividual' => 1,
 
+            // chaveiro do payload real cifrado: "1:base64,2:base64"; a maior versão cifra
+            'payloadKeys' => env('AVALIACAO_CHAVES_PAYLOAD', ''),
+
+            // ids dos usuários que podem revelar o payload real: "12,34"
+            'revealUsers' => env('AVALIACAO_REVELAR_USUARIOS', ''),
+
             'etapa' => 'Única',
             'situacaoEtapa' => '2', // Concluído
             'canalPrestacao' => '8', // Web
@@ -88,6 +94,25 @@ class Plugin extends \MapasCulturais\Plugin
     public function registry(): Services\SatisfactionRegistry
     {
         return $this->registry ??= new Services\SatisfactionRegistry($this);
+    }
+
+    /** Cofre do payload real; nulo sem chave válida. */
+    public function vault(): ?Services\PayloadVault
+    {
+        return Services\PayloadVault::fromConfig((string) $this->config['payloadKeys']);
+    }
+
+    /** O usuário está na lista de quem pode revelar o payload real. */
+    public function canReveal(?\MapasCulturais\Entities\User $user): bool
+    {
+        if (!$user || $user->is('guest') || !$user->is(self::ADMIN_ROLE)) {
+            return false;
+        }
+
+        $allowed = $this->config['revealUsers'];
+        $allowed = is_array($allowed) ? $allowed : explode(',', (string) $allowed);
+
+        return in_array((int) $user->id, array_map('intval', $allowed), true);
     }
 
     public function sender(): Services\SatisfactionSender
@@ -203,6 +228,7 @@ class Plugin extends \MapasCulturais\Plugin
             $iconset['govbr-satisfaction-retry'] = 'material-symbols:send-outline';
             $iconset['govbr-satisfaction-history'] = 'material-symbols:history';
             $iconset['govbr-satisfaction-copy'] = 'material-symbols:content-copy-outline';
+            $iconset['govbr-satisfaction-reveal'] = 'material-symbols:visibility-outline';
             $iconset['govbr-satisfaction-pending'] = 'material-symbols:schedule-outline';
             $iconset['govbr-satisfaction-success'] = 'material-symbols:check-circle';
             $iconset['govbr-satisfaction-simulated'] = 'material-symbols:code';

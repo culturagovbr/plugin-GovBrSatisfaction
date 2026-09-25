@@ -21,6 +21,11 @@ class DispatchLog
     /** Teto da resposta gravada, em bytes. */
     const RESPONSE_MAX = 65536;
 
+    /** Sem cofre explícito, usa o do plugin a cada gravação. */
+    public function __construct(private readonly ?PayloadVault $vault = null)
+    {
+    }
+
     /** Abre um envio e marca como substituídos os pendentes da mesma solicitação. */
     public function start(SatisfactionRequest $request, string $origin, ?User $user = null): SatisfactionDispatch
     {
@@ -90,7 +95,7 @@ class DispatchLog
         return App::i()->repo(SatisfactionDispatch::class)->findOneBy(['uuid' => $uuid]);
     }
 
-    /** Grava uma tentativa, mascarando payload, resposta, cabeçalhos e resumo. */
+    /** Grava uma tentativa, mascarando payload, resposta, cabeçalhos e resumo; cifra o payload real se houver cofre. */
     public function recordAttempt(
         SatisfactionDispatch $dispatch,
         int $number,
@@ -117,6 +122,10 @@ class DispatchLog
         $attempt->endpoint = $endpoint;
         $attempt->httpStatus = $httpStatus;
         $attempt->payload = $payload === null ? null : Payload::encode(Mask::forScreen($payload));
+        $vault = $this->vault ?? \GovBrSatisfaction\Plugin::instance()?->vault();
+        $attempt->payloadSealed = $payload === null || !$vault
+            ? null
+            : $vault->seal(Payload::encode($payload), PayloadVault::context($dispatch->uuid, $number));
         $attempt->detail = $detail === null
             ? null
             : mb_substr(Mask::forLogText(self::utf8($detail)), 0, Result::DETAIL_MAX);

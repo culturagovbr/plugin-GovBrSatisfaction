@@ -193,11 +193,74 @@
         color: var(--mc-gray-500, #4b4b53);
     }
 
+    // janela de revelação aberta
+    &__janela {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0 0 0.75rem;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid var(--mc-warning-500, #b04706);
+        border-radius: 4px;
+        color: var(--mc-warning-500, #b04706);
+        font-weight: var(--mc-font-semibold);
+    }
+
+    &__revelar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+
+        .button {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+    }
+
+    &__aviso {
+        color: var(--mc-danger-500, #b7292e);
+        font-weight: var(--mc-font-semibold);
+    }
+
+    // bloco com os dados reais
+    &__codigo--real &__json {
+        outline: 2px solid var(--mc-danger-500, #b7292e);
+    }
+
+
     &__vazio p {
         margin: 0 0 0.5rem;
     }
 
     &__mais {
         margin-top: 1rem;
+    }
+}
+
+/** Modal do motivo. */
+.govbr-dispatches__modal {
+    text-align: left;
+
+    textarea {
+        width: 100%;
+        resize: vertical;
+    }
+
+    // botão desabilitado
+    .button[disabled] {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+}
+
+.govbr-dispatches__contagem {
+    color: var(--mc-danger-500, #b7292e);
+    font-size: var(--mc-font-size-xxs);
+
+    &--ok {
+        color: var(--mc-success-500, #4cb051);
     }
 }
