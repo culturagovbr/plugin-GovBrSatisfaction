@@ -203,7 +203,7 @@ $this->import('
 
                                                 <p class="govbr-satisfaction__nota" v-if="registro.detalhe">{{ registro.detalhe }}</p>
 
-                                                <pre class="govbr-satisfaction__corpo" v-if="resposta">{{ formatarResposta(resposta) }}</pre>
+                                                <pre class="govbr-satisfaction__corpo" v-if="corpoAcrescenta(registro)">{{ formatarResposta(resposta) }}</pre>
                                             </div>
                                         </template>
                                     </mc-modal>

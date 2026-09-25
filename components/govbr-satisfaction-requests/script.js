@@ -253,6 +253,15 @@ app.component('govbr-satisfaction-requests', {
             return JSON.stringify(valor, null, 2);
         },
 
+        // corpo só quando difere do resumo
+        corpoAcrescenta(registro) {
+            if (!this.resposta) {
+                return false;
+            }
+
+            return this.formatarResposta(this.resposta).trim() !== (registro.detalhe || '').trim();
+        },
+
         formatarResposta(corpo) {
             const ruido = ['stackTrace', 'suppressed', 'cause', 'localizedMessage', 'instance', 'type'];
 
