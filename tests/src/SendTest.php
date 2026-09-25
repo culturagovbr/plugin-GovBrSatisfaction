@@ -241,10 +241,7 @@ class SendTest extends TestCase
         ];
     }
 
-    /**
-     * O cliente lançando não pode deixar a linha "Disparada" sem disparo: vira
-     * falha da linha, com a mensagem, e esgota o teto como um 500.
-     */
+    /** Cliente que lança vira falha da linha. */
     function testClienteQueLancaNaoDeixaALinhaComoEnviada()
     {
         $this->publicarEspaco();
@@ -254,7 +251,7 @@ class SendTest extends TestCase
 
         $linha = $this->solicitacoes()[0];
 
-        $this->assertSituacao('pendente', $linha, 'a exceção deixou a linha marcada como enviada');
+        $this->assertSituacao('pendente', $linha, 'a exceção deveria deixar a linha pendente');
         $this->assertNull($linha['send_timestamp']);
         $this->assertSame(1, (int) $linha['send_attempts']);
         $this->assertStringContainsString('curl_init falhou', $linha['send_detail']);

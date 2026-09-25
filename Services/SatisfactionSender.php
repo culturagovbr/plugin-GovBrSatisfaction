@@ -75,14 +75,9 @@ class SatisfactionSender
             return SendOutcome::Done;
         }
 
-        // Marca antes de chamar: se o processo morrer no meio do POST, é
-        // preferível deixar de convidar a convidar duas vezes.
-        $request->sendStatus = SatisfactionRequest::STATUS_SENT;
-        $request->sendTimestamp = new \DateTime();
         $request->save(true);
 
-        // O cliente devolve Result para tudo. Se lançar, a linha já está
-        // marcada como enviada e o job só relê pendentes — vira falha da linha.
+        // Exceção do cliente vira falha da linha.
         $threw = false;
 
         try {
@@ -105,12 +100,12 @@ class SatisfactionSender
             : mb_substr($result->detail, 0, Result::DETAIL_MAX);
 
         if ($result->outcome === Outcome::Sent) {
+            $request->sendStatus = SatisfactionRequest::STATUS_SENT;
+            $request->sendTimestamp = new \DateTime();
             $request->save(true);
 
             return SendOutcome::Done;
         }
-
-        $request->sendTimestamp = null;
 
         $giveUp = false;
         $rowFailed = $result->outcome === Outcome::Retry && ($threw || self::countsAsAttempt($result));

@@ -108,25 +108,29 @@ class HttpClientTest extends TestCase
         $this->assertNull($r->status);
     }
 
-    /** DNS, conexão e TLS falham antes de qualquer byte sair. */
-    function testErroDeRedeAntesDoDespachoVoltaParaAFila()
+    /**
+     * Todo erro de rede volta para a fila.
+     *
+     * @dataProvider errosDeRede
+     */
+    function testErroDeRedeVoltaParaAFila(int $errno)
     {
-        foreach ([CURLE_COULDNT_RESOLVE_HOST, CURLE_COULDNT_CONNECT, CURLE_SSL_CONNECT_ERROR] as $errno) {
-            $r = HttpClient::interpret(0, '', $errno, 'erro');
+        $r = HttpClient::interpret(0, '', $errno, 'erro');
 
-            $this->assertSame(Outcome::Retry, $r->outcome, "curl errno {$errno} foi tratado como envio");
-            $this->assertNull($r->status);
-        }
+        $this->assertSame(Outcome::Retry, $r->outcome, "curl errno {$errno} foi tratado como envio");
+        $this->assertNull($r->status);
+        $this->assertStringContainsString('falha de rede', $r->detail);
     }
 
-    /** Timeout esperando a resposta é ambíguo: o BSC pode ter gravado. */
-    function testErroDeRedeDepoisDoDespachoContaComoEnvio()
+    public static function errosDeRede(): array
     {
-        $r = HttpClient::interpret(0, '', CURLE_OPERATION_TIMEDOUT, 'Operation timed out');
-
-        $this->assertSame(Outcome::Sent, $r->outcome);
-        $this->assertNull($r->status);
-        $this->assertStringContainsString('Operation timed out', $r->detail);
+        return [
+            'dns' => [CURLE_COULDNT_RESOLVE_HOST],
+            'conexão' => [CURLE_COULDNT_CONNECT],
+            'tls' => [CURLE_SSL_CONNECT_ERROR],
+            'timeout' => [CURLE_OPERATION_TIMEDOUT],
+            'resposta truncada' => [CURLE_PARTIAL_FILE],
+        ];
     }
 
     function testCorpoGuardadoNaoTrazAPilhaDeExcecao()

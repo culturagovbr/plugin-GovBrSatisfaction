@@ -11,18 +11,6 @@ use MapasCulturais\App;
  */
 class HttpClient implements Client
 {
-    /**
-     * Erros de curl que acontecem depois de a requisição ter saído — os únicos
-     * ambíguos. DNS, conexão e TLS falham antes de qualquer byte sair.
-     */
-    const ERRORS_AFTER_DISPATCH = [
-        CURLE_PARTIAL_FILE,
-        CURLE_OPERATION_TIMEDOUT,
-        CURLE_GOT_NOTHING,
-        CURLE_SEND_ERROR,
-        CURLE_RECV_ERROR,
-    ];
-
     /** Segundos, para o token e para o POST. */
     const TIMEOUT = 15;
 
@@ -112,13 +100,9 @@ class HttpClient implements Client
      */
     public static function interpret(int $status, string $body, int $errno = 0, string $curlError = ''): Result
     {
+        // Erro de rede: retentar.
         if ($errno !== 0) {
-            // Após o despacho é ambíguo: melhor deixar de convidar que convidar duas vezes.
-            if (in_array($errno, self::ERRORS_AFTER_DISPATCH, true)) {
-                return new Result(Outcome::Sent, null, "falha de rede após o despacho: {$curlError}");
-            }
-
-            return new Result(Outcome::Retry, null, "falha de rede antes do despacho: {$curlError}");
+            return new Result(Outcome::Retry, null, "falha de rede: {$curlError}");
         }
 
         $body = self::strip($body);
@@ -152,10 +136,7 @@ class HttpClient implements Client
         return new Result(Outcome::Retry, $status ?: null, $detail, $body);
     }
 
-    /**
-     * Envio limpo não loga. Enviado por outro caminho ("já enviada", rede
-     * após o despacho) é aviso; o resto é erro.
-     */
+    /** Loga o resultado; envio limpo não loga. */
     private function log(Result $result): void
     {
         $clean = $result->outcome === Outcome::Sent
