@@ -140,6 +140,11 @@ app.component('govbr-satisfaction-requests', {
                 }
 
                 if (!response.ok) {
+                    // devolve a página avançada pelo clique
+                    if (acumular) {
+                        this.pagina -= 1;
+                    }
+
                     this.messages.error(data.error || this.text('erroAoCarregar'));
                     return;
                 }
