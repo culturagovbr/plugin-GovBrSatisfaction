@@ -85,6 +85,21 @@
         }
     }
 
+    // barra do lote: entre a toolbar e a tabela, texto à esquerda e ação à direita
+    &__lote {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+        padding: 0.75rem 1rem;
+        border: var(--mc-border-hairline) var(--mc-gray-300);
+        border-radius: var(--mc-border-radius-sm);
+        font-size: var(--mc-font-size-xs);
+        color: var(--mc-gray-700);
+    }
+
     &__bulk {
         display: inline-flex;
         align-items: center;
@@ -129,11 +144,13 @@
             font-size: var(--mc-font-size-xxs);
         }
 
-        .button {
-            padding: 0.125rem 0.5rem;
-            min-height: 0;
-            font-size: var(--mc-font-size-xxs);
-        }
+    }
+
+    // botões de ícone da linha; os do modal (renderizado dentro da célula) ficam no tamanho do tema
+    &__acao {
+        padding: 0.125rem 0.5rem;
+        min-height: 0;
+        font-size: var(--mc-font-size-xxs);
     }
 
     // resumo da resposta sob a situação, numa linha só
@@ -188,6 +205,8 @@
         color: var(--mc-gray-700);
         font-size: var(--mc-font-size-xxs);
         line-height: 1.4;
+        // texto à esquerda
+        text-align: left;
     }
 
     &__corpo {

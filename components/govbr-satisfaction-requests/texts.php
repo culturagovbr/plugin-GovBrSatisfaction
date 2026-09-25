@@ -41,6 +41,7 @@ return [
     'devolverErro' => i::__('Não foi possível devolver a solicitação à fila.'),
 
     // lote: todas as recusadas do filtro atual, uma a cada N segundos
+    'loteResumo' => i::__('%s recusada(s) com o filtro atual'),
     'devolverTodas' => i::__('Devolver todas à fila (%s)'),
     'devolverTodasTitulo' => i::__('Devolver todas à fila?'),
     'devolverTodasConfirmacao' => i::__('%s solicitações voltam à fila, uma a cada %s segundos — cerca de %s até a última. O contador de tentativas de cada uma é zerado.'),

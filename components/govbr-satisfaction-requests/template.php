@@ -58,34 +58,38 @@ $this->import('
                         </select>
                     </div>
 
-                    <!-- lote: só com o filtro de recusadas ativo e algo na lista -->
-                    <mc-modal classes="govbr-satisfaction__modal" :title="text('devolverTodasTitulo')" v-if="podeDevolverTodas">
-                        <template #default>
-                            <p>{{ fmt('devolverTodasConfirmacao', loteTamanho, status.loteIntervalo, duracao(loteTamanho * status.loteIntervalo)) }}</p>
-                            <p class="govbr-satisfaction__nota" v-if="total > loteTamanho">{{ fmt('devolverTodasTeto', loteTamanho, total) }}</p>
-                        </template>
-
-                        <template #actions="modal">
-                            <button class="button button--text button--md" @click="modal.close()">
-                                <?= i::__('Cancelar') ?>
-                            </button>
-                            <button
-                                class="button button--primary button--md"
-                                :class="{disabled: devolvendoTodas}"
-                                :disabled="devolvendoTodas"
-                                @click="devolverTodas(modal)">
-                                <?= i::__('Confirmar') ?>
-                            </button>
-                        </template>
-
-                        <template #button="modal">
-                            <button class="button button--primary-outline button--sm govbr-satisfaction__bulk" @click="modal.open()">
-                                <mc-icon name="govbr-satisfaction-requeue"></mc-icon>
-                                {{ fmt('devolverTodas', total) }}
-                            </button>
-                        </template>
-                    </mc-modal>
                 </div>
+            </div>
+
+            <!-- lote: barra contextual, só com o filtro de recusadas ativo e algo na lista -->
+            <div class="govbr-satisfaction__lote" v-if="podeDevolverTodas">
+                <span>{{ fmt('loteResumo', total) }}</span>
+                <mc-modal classes="govbr-satisfaction__modal" :title="text('devolverTodasTitulo')">
+                    <template #default>
+                        <p>{{ fmt('devolverTodasConfirmacao', loteTamanho, status.loteIntervalo, duracao(Math.max(0, loteTamanho - 1) * status.loteIntervalo)) }}</p>
+                        <p class="govbr-satisfaction__nota" v-if="total > loteTamanho">{{ fmt('devolverTodasTeto', loteTamanho, total) }}</p>
+                    </template>
+
+                    <template #actions="modal">
+                        <button class="button button--text button--md" @click="modal.close()">
+                            <?= i::__('Cancelar') ?>
+                        </button>
+                        <button
+                            class="button button--primary button--md"
+                            :class="{disabled: devolvendoTodas}"
+                            :disabled="devolvendoTodas"
+                            @click="devolverTodas(modal)">
+                            <?= i::__('Confirmar') ?>
+                        </button>
+                    </template>
+
+                    <template #button="modal">
+                        <button class="button button--primary-outline button--sm govbr-satisfaction__bulk" @click="modal.open()">
+                            <mc-icon name="govbr-satisfaction-requeue"></mc-icon>
+                            {{ fmt('devolverTodas', total) }}
+                        </button>
+                    </template>
+                </mc-modal>
             </div>
 
             <mc-loading :condition="carregando && !registros.length"></mc-loading>
@@ -175,7 +179,7 @@ $this->import('
 
                                         <template #button="modal">
                                             <button
-                                                class="button button--primary-noborder button--sm"
+                                                class="button button--primary-noborder button--sm govbr-satisfaction__acao"
                                                 :title="text(aguardaRetentativa(registro) ? 'tentarAgora' : 'devolver')"
                                                 :aria-label="text(aguardaRetentativa(registro) ? 'tentarAgora' : 'devolver')"
                                                 @click="modal.open()">
@@ -187,7 +191,7 @@ $this->import('
                                     <mc-modal classes="govbr-satisfaction__modal" :title="text('payloadTitulo')">
                                         <template #button="{open}">
                                             <button
-                                                class="button button--primary-noborder button--sm"
+                                                class="button button--primary-noborder button--sm govbr-satisfaction__acao"
                                                 :title="text('ver')"
                                                 :aria-label="text('ver')"
                                                 @click="verPayload(registro.id, open)">
