@@ -81,6 +81,9 @@ class Plugin extends \MapasCulturais\Plugin
             // ids dos usuários que podem revelar o payload real: "12,34"
             'revealUsers' => env('AVALIACAO_REVELAR_USUARIOS', ''),
 
+            // dias até apagar o payload cifrado e a resposta das tentativas; 0 desliga
+            'retentionDays' => (int) env('AVALIACAO_RETENCAO_DIAS', 180),
+
             'etapa' => 'Única',
             'situacaoEtapa' => '2', // Concluído
             'canalPrestacao' => '8', // Web
@@ -125,6 +128,7 @@ class Plugin extends \MapasCulturais\Plugin
         $app = App::i();
 
         $app->registerJobType(new SendSatisfactionRequestJob(SendSatisfactionRequestJob::SLUG));
+        $app->registerJobType(new Jobs\PurgeSatisfactionHistoryJob(Jobs\PurgeSatisfactionHistoryJob::SLUG));
         $app->registerController('govbr-satisfaction-requests', Controllers\Requests::class);
     }
 

@@ -60,6 +60,8 @@ class SendSatisfactionRequestJob extends JobType
             return true;
         }
 
+        PurgeSatisfactionHistoryJob::schedule();
+
         $requestId = (int) ($job->request_id ?? 0);
 
         // Job sem request_id: distribui um job por pendente.
