@@ -23,6 +23,12 @@ return [
     // busca e filtros
     'buscar' => i::__('Nome, id do usuário ou uuid do envio'),
     'filtrarSituacao' => i::__('Filtrar por situação'),
+
+    // monitoramento em tempo real
+    'tempoReal' => i::__('Monitorar em tempo real'),
+    'pausar' => i::__('Pausar'),
+    'atualizar' => i::__('Atualizar'),
+    'atualizadoEm' => i::__('Atualizado às %s'),
     'registradaEm' => i::__('registrada em %s'),
     'disparadaEm' => i::__('disparada em %s'),
 

@@ -18,6 +18,12 @@ app.component('govbr-satisfaction-dispatches', {
             required: true,
         },
 
+        // muda a cada leitura do monitoramento em tempo real
+        tick: {
+            type: Number,
+            default: 0,
+        },
+
         // do GET_status: cofre configurado e usuário na lista
         revelacao: {
             type: Object,
@@ -73,6 +79,12 @@ app.component('govbr-satisfaction-dispatches', {
 
         janelaMinutos() {
             return Math.round(this.revelacao.segundos / 60);
+        },
+    },
+
+    watch: {
+        tick() {
+            this.atualizar();
         },
     },
 
@@ -132,6 +144,28 @@ app.component('govbr-satisfaction-dispatches', {
                 this.messages.error(error.message || this.text('erroAoCarregar'));
             } finally {
                 this.carregandoMais = false;
+            }
+        },
+
+        // relê as páginas carregadas mantendo os acordeões abertos
+        async atualizar() {
+            if (this.carregando || this.carregandoMais) {
+                return;
+            }
+
+            try {
+                let envios = [];
+                let data = null;
+
+                for (let pagina = 1; pagina <= Math.max(1, this.pagina); pagina++) {
+                    data = await this.buscar(pagina);
+                    envios = envios.concat(data.envios);
+                }
+
+                this.envios = envios;
+                this.paginas = data.paginas;
+                this.erro = null;
+            } catch (error) {
             }
         },
 

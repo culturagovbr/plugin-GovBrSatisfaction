@@ -55,6 +55,7 @@ $this->import('
                 </div>
             </form>
 
+            <div class="govbr-satisfaction__barra">
             <div class="govbr-satisfaction__pilulas" role="group" :aria-label="text('filtrarSituacao')">
                 <button
                     type="button"
@@ -75,6 +76,27 @@ $this->import('
                     @click="escolherSituacao(situacao)">
                     {{ text(situacao) }} <span>{{ totais[situacao] || 0 }}</span>
                 </button>
+            </div>
+
+            <div class="govbr-satisfaction__monitor">
+                <span class="govbr-satisfaction__hint" v-if="tempoReal && atualizadoEm" aria-live="polite">
+                    {{ fmt('atualizadoEm', hora(atualizadoEm)) }}
+                </span>
+
+                <button type="button" class="button button--primary-outline button--sm" v-if="!tempoReal" :disabled="carregando" @click="atualizar">
+                    {{ text('atualizar') }}
+                </button>
+
+                <!-- sólido enquanto monitora -->
+                <button
+                    type="button"
+                    :class="['button', 'button--sm', tempoReal ? 'button--primary' : 'button--primary-outline']"
+                    :aria-pressed="tempoReal"
+                    @click="alternarTempoReal">
+                    <span class="govbr-satisfaction__pulso" v-if="tempoReal"></span>
+                    {{ tempoReal ? text('pausar') : text('tempoReal') }}
+                </button>
+            </div>
             </div>
 
             <!-- seleção: persiste entre páginas e filtros -->
@@ -274,7 +296,8 @@ $this->import('
                             <govbr-satisfaction-dispatches
                                 :key="registro.id + '-' + (versoes[registro.id] || 0)"
                                 :request-id="registro.id"
-                                :revelacao="status.revelacao">
+                                :revelacao="status.revelacao"
+                                :tick="tick">
                             </govbr-satisfaction-dispatches>
                         </div>
                     </li>

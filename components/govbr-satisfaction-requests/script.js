@@ -1,3 +1,6 @@
+// intervalo das leituras no monitoramento em tempo real
+const GOVBR_SATISFACTION_MONITOR_INTERVAL = 5000;
+
 app.component('govbr-satisfaction-requests', {
     template: $TEMPLATES['govbr-satisfaction-requests'],
 
@@ -42,6 +45,13 @@ app.component('govbr-satisfaction-requests', {
 
             // só a resposta do pedido mais recente é aceita
             geracao: 0,
+
+            // monitoramento em tempo real
+            tempoReal: false,
+            proximaLeitura: null,
+            atualizadoEm: null,
+            falhouAoAtualizar: false,
+            tick: 0,
         };
     },
 
@@ -90,6 +100,11 @@ app.component('govbr-satisfaction-requests', {
         this.carregar();
     },
 
+    beforeUnmount() {
+        this.tempoReal = false;
+        this.cancelarLeitura();
+    },
+
     methods: {
         async carregarStatus() {
             try {
@@ -102,20 +117,22 @@ app.component('govbr-satisfaction-requests', {
             }
         },
 
+        urlDaPagina(pagina) {
+            return Utils.createUrl('govbr-satisfaction-requests', 'index', {
+                pagina,
+                situacao: this.filtros.situacao,
+                servico: this.filtros.servico,
+                busca: this.filtros.busca.trim(),
+            });
+        },
+
         // anexa a página
         async carregar(acumular = false) {
             this.carregando = true;
             const geracao = ++this.geracao;
 
             try {
-                const url = Utils.createUrl('govbr-satisfaction-requests', 'index', {
-                    pagina: this.pagina,
-                    situacao: this.filtros.situacao,
-                    servico: this.filtros.servico,
-                    busca: this.filtros.busca.trim(),
-                });
-
-                const response = await fetch(url);
+                const response = await fetch(this.urlDaPagina(this.pagina));
                 const data = await response.json();
 
                 if (geracao !== this.geracao) {
@@ -146,6 +163,86 @@ app.component('govbr-satisfaction-requests', {
                     this.carregando = false;
                 }
             }
+        },
+
+        alternarTempoReal() {
+            this.tempoReal = !this.tempoReal;
+
+            if (this.tempoReal) {
+                this.atualizar();
+                this.agendarLeitura();
+            } else {
+                this.cancelarLeitura();
+            }
+        },
+
+        // próxima leitura só depois que a atual termina
+        agendarLeitura() {
+            this.cancelarLeitura();
+
+            this.proximaLeitura = setTimeout(async () => {
+                if (!document.hidden && !this.carregando) {
+                    await this.atualizar();
+                }
+
+                if (this.tempoReal) {
+                    this.agendarLeitura();
+                }
+            }, GOVBR_SATISFACTION_MONITOR_INTERVAL);
+        },
+
+        cancelarLeitura() {
+            if (this.proximaLeitura) {
+                clearTimeout(this.proximaLeitura);
+                this.proximaLeitura = null;
+            }
+        },
+
+        // relê as páginas já carregadas, sem indicador de carregamento
+        async atualizar() {
+            if (this.carregando) {
+                return;
+            }
+
+            const geracao = ++this.geracao;
+
+            try {
+                let registros = [];
+                let data = null;
+
+                for (let pagina = 1; pagina <= Math.max(1, this.pagina); pagina++) {
+                    const response = await fetch(this.urlDaPagina(pagina));
+                    data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(data.error);
+                    }
+
+                    registros = registros.concat(data.registros);
+                }
+
+                if (geracao !== this.geracao) {
+                    return;
+                }
+
+                this.registros = registros;
+                this.total = data.total;
+                this.paginas = data.paginas;
+                this.totais = data.totais;
+                this.atualizadoEm = Date.now();
+                this.falhouAoAtualizar = false;
+                this.tick += 1;
+            } catch (error) {
+                // um aviso por queda
+                if (geracao === this.geracao && !this.falhouAoAtualizar) {
+                    this.falhouAoAtualizar = true;
+                    this.messages.error(error.message || this.text('erroAoCarregar'));
+                }
+            }
+        },
+
+        hora(timestamp) {
+            return new McDate(new Date(timestamp)).format({ timeStyle: 'medium' });
         },
 
         alternarHistorico(registro) {
