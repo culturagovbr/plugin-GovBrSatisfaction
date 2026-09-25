@@ -11,8 +11,11 @@ use MapasCulturais\App;
  */
 class HttpClient implements Client
 {
-    /** Segundos, para o token e para o POST. */
-    const TIMEOUT = 15;
+    /** Segundos, total, para o token e para o POST. */
+    const TIMEOUT = 30;
+
+    /** Segundos para abrir a conexão. */
+    const CONNECT_TIMEOUT = 10;
 
     /** Corte do motivo lido do corpo, para o resumo. */
     const REASON_MAX = 200;
@@ -73,6 +76,7 @@ class HttpClient implements Client
             CURLOPT_URL => "{$this->baseUrl}/api/avaliacao/completa",
             CURLOPT_POST => true,
             CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
             CURLOPT_TIMEOUT => self::TIMEOUT,
             CURLOPT_HTTPHEADER => [
                 "Authorization: Bearer {$token}",
@@ -202,6 +206,7 @@ class HttpClient implements Client
         curl_setopt_array($ch, [
             CURLOPT_URL => $this->authUrl,
             CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
             CURLOPT_TIMEOUT => self::TIMEOUT,
             CURLOPT_CUSTOMREQUEST => 'GET',
             CURLOPT_HTTPHEADER => [
