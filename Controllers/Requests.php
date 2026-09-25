@@ -232,9 +232,7 @@ class Requests extends \MapasCulturais\Controller
             'payload' => is_array($payload) ? Mask::forScreen($payload) : null,
             'resposta' => $attempt->response === null ? null : Mask::forBody($attempt->response),
             'respostaCortada' => (bool) $attempt->responseTruncated,
-            'cabecalhos' => $attempt->responseHeaders === null
-                ? null
-                : array_map(fn($line) => Mask::forLogText((string) $line), $attempt->responseHeaders),
+            'cabecalhos' => $attempt->responseHeaders === null ? null : Mask::headers($attempt->responseHeaders),
             'enviadoEm' => $attempt->sentAt->getTimestamp(),
             'duracaoMs' => $attempt->durationMs === null ? null : (int) $attempt->durationMs,
             'revelavel' => $attempt->payloadSealed !== null,

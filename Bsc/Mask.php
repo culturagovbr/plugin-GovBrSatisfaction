@@ -9,6 +9,9 @@ namespace GovBrSatisfaction\Bsc;
  */
 class Mask
 {
+    /** Nome de campo ou cabeçalho que carrega credencial. */
+    const CREDENTIAL = '/(cookie|authorization|token|secret|password|senha|session|api[-_]?key)/i';
+
     /** Campos do payload que identificam a pessoa. */
     const PERSONAL_FIELDS = ['cpfCidadao', 'cpfConsulta', 'usuario', 'email', 'nomeCidadao', 'ipOrigem', 'ipUsuario'];
 
@@ -126,11 +129,25 @@ class Mask
         );
     }
 
-    /** Mascara os campos pessoais, o texto livre e os números de 11 dígitos em qualquer nível. */
+    /** Cabeçalhos da resposta sem os de cookie e credencial, com o texto mascarado. */
+    public static function headers(array $lines, array $known = []): array
+    {
+        $kept = array_filter($lines, function ($line) {
+            $name = strstr((string) $line, ':', true);
+
+            return $name === false || !preg_match(self::CREDENTIAL, $name);
+        });
+
+        return array_values(array_map(fn($line) => self::forLogText((string) $line, $known), $kept));
+    }
+
+    /** Mascara credenciais, campos pessoais, texto livre e números de 11 dígitos em qualquer nível. */
     private static function walk(array $data, array $known): array
     {
         foreach ($data as $key => $value) {
-            if (is_array($value)) {
+            if (is_string($key) && preg_match(self::CREDENTIAL, $key) && $value !== null && !is_array($value)) {
+                $data[$key] = '***';
+            } elseif (is_array($value)) {
                 $data[$key] = self::walk($value, $known);
             } elseif (is_string($key) && in_array($key, self::PERSONAL_FIELDS, true) && is_scalar($value)) {
                 $data[$key] = self::field($key, (string) $value);

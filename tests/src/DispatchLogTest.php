@@ -118,7 +118,7 @@ class DispatchLogTest extends TestCase
             detail: 'CPF 77689062768 inválido',
             method: 'POST',
             endpoint: 'http://bsc.invalido.teste/api/avaliacao/completa',
-            responseHeaders: ['HTTP/1.1 400 Bad Request', 'X-Cidadao: maria.silva@example.com'],
+            responseHeaders: ['HTTP/1.1 400 Bad Request', 'X-Cidadao: maria.silva@example.com', 'Set-Cookie: JSESSIONID=abc'],
             durationMs: 144,
         );
 

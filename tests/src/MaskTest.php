@@ -126,6 +126,10 @@ class MaskTest extends TestCase
             'corpo que não é json' => ['erro para maria.silva@example.com', 'erro para ***'],
             'sem dado pessoal fica igual' => ['{"status": "BAD_REQUEST", "codigoErro": 1790278898}', '{"status": "BAD_REQUEST", "codigoErro": 1790278898}'],
             'cpf numérico fora de campo pessoal' => ['{"cpf":77689062768}', '{"cpf":"***"}'],
+            'token no corpo' => [
+                '{"accessToken":"abc","data":{"refresh_token":"x","clientSecret":"y"},"protocolo":"P1"}',
+                '{"accessToken":"***","data":{"refresh_token":"***","clientSecret":"***"},"protocolo":"P1"}',
+            ],
         ];
     }
 
@@ -173,5 +177,21 @@ class MaskTest extends TestCase
     function testValorConhecidoCurtoFica()
     {
         $this->assertSame('Ana foi avisada', Mask::forLogText('Ana foi avisada', ['Ana']));
+    }
+
+    /** Cabeçalhos de cookie e credencial não ficam. */
+    function testCabecalhosSemCookieNemCredencial()
+    {
+        $this->assertSame(
+            ['HTTP/1.1 200 OK', 'Content-Type: application/json', 'X-Request-Id: 123'],
+            Mask::headers([
+                'HTTP/1.1 200 OK',
+                'Content-Type: application/json',
+                'Set-Cookie: JSESSIONID=abc; Path=/',
+                'Authorization: Bearer abc',
+                'X-Auth-Token: xyz',
+                'X-Request-Id: 123',
+            ])
+        );
     }
 }
