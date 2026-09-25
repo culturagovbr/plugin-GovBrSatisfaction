@@ -90,6 +90,19 @@ class DispatchLogTest extends TestCase
         $this->assertSame('substituido', $antigo->state);
     }
 
+    /** A listagem traz o estado do banco, mesmo com o envio antigo em memória. */
+    function testListaTrazASituacaoAtualDoEnvioEmMemoria()
+    {
+        $solicitacao = $this->solicitacao();
+        $antigo = $this->log->start($solicitacao, SatisfactionDispatch::ORIGIN_REGISTRATION);
+        $this->log->start($solicitacao, SatisfactionDispatch::ORIGIN_REQUEUE);
+
+        $pagina = $this->log->findByRequest($solicitacao->id);
+
+        $this->assertSame($antigo->id, $pagina[1]['dispatch']->id);
+        $this->assertSame('substituido', $pagina[1]['dispatch']->state);
+    }
+
     function testTentativaGravaSoDadoMascarado()
     {
         $envio = $this->log->start($this->solicitacao(), SatisfactionDispatch::ORIGIN_REGISTRATION);

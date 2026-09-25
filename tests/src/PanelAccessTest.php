@@ -73,6 +73,7 @@ class PanelAccessTest extends TestCase
         return [
             'index' => ['index'],
             'payload' => ['payload'],
+            'dispatches' => ['dispatches'],
             'status' => ['status'],
         ];
     }
@@ -92,6 +93,7 @@ class PanelAccessTest extends TestCase
         $this->noSubsite($this->outroSubsite);
 
         $this->assertSame(404, $this->consultar('index'));
+        $this->assertSame(404, $this->consultar('dispatches', ['id' => 1]));
     }
 
     function testPluginDesligadoResponde503()
