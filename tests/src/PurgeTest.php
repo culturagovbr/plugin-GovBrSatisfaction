@@ -94,6 +94,19 @@ class PurgeTest extends TestCase
         $this->assertNotNull($this->tentativa($antiga)['payload_sealed']);
     }
 
+    /** Erro no expurgo não escapa: o job termina e segue agendado. */
+    function testFalhaNoExpurgoNaoTravaOJob()
+    {
+        $job = new class(PurgeSatisfactionHistoryJob::SLUG) extends PurgeSatisfactionHistoryJob {
+            protected function purge(): int
+            {
+                throw new \RuntimeException('banco indisponível');
+            }
+        };
+
+        $this->assertTrue($job->runSafely());
+    }
+
     /** O envio agenda o expurgo diário uma vez só. */
     function testEnvioAgendaUmExpurgoDiario()
     {
