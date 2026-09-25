@@ -7,7 +7,9 @@ use GovBrSatisfaction\Bsc\Payload;
 use GovBrSatisfaction\Entities\SatisfactionAttempt;
 use GovBrSatisfaction\Entities\SatisfactionDispatch;
 use GovBrSatisfaction\Entities\SatisfactionRequest;
+use GovBrSatisfaction\Entities\SatisfactionReveal;
 use GovBrSatisfaction\Services\DispatchLog;
+use GovBrSatisfaction\Services\PayloadReveal;
 use MapasCulturais\App;
 
 /**
@@ -219,6 +221,7 @@ class Requests extends \MapasCulturais\Controller
         $payload = $attempt->payload === null ? null : json_decode($attempt->payload, true);
 
         return [
+            'id' => (int) $attempt->id,
             'numero' => (int) $attempt->number,
             'maximo' => (int) $attempt->maxAttempts,
             'situacao' => $attempt->outcome,
@@ -234,7 +237,112 @@ class Requests extends \MapasCulturais\Controller
                 : array_map(fn($line) => Mask::forLogText((string) $line), $attempt->responseHeaders),
             'enviadoEm' => $attempt->sentAt->getTimestamp(),
             'duracaoMs' => $attempt->durationMs === null ? null : (int) $attempt->durationMs,
+            'revelavel' => $attempt->payloadSealed !== null,
         ];
+    }
+
+    /**
+     * Abre a janela de revelação do usuário, com o motivo.
+     *
+     * @return void
+     */
+    public function POST_unlockReveal()
+    {
+        $this->requireInstallationAdmin();
+
+        $app = App::i();
+        $reveal = new PayloadReveal($this->plugin());
+
+        if (!$this->plugin()->canReveal($app->user)) {
+            $reveal->deny($app->user, null, 'usuário fora de AVALIACAO_REVELAR_USUARIOS');
+            $this->json(['error' => \MapasCulturais\i::__('Seu usuário não pode revelar dados pessoais.')], 403);
+
+            return;
+        }
+
+        $reason = trim((string) ($this->data['motivo'] ?? ''));
+
+        if (mb_strlen($reason) < PayloadReveal::REASON_MIN) {
+            $this->json(['error' => sprintf(\MapasCulturais\i::__('Descreva o motivo com pelo menos %d caracteres.'), PayloadReveal::REASON_MIN)], 400);
+
+            return;
+        }
+
+        $until = $reveal->unlock($app->user, mb_substr($reason, 0, 1000));
+
+        $this->noStore();
+        $this->json(['ate' => $until, 'segundos' => PayloadReveal::WINDOW]);
+    }
+
+    /**
+     * Payload real de uma tentativa, dentro da janela aberta.
+     *
+     * @return void
+     */
+    public function POST_reveal()
+    {
+        $this->requireInstallationAdmin();
+
+        $app = App::i();
+        $plugin = $this->plugin();
+        $reveal = new PayloadReveal($plugin);
+
+        $action = $this->data['acao'] ?? SatisfactionReveal::ACTION_REVEAL;
+
+        if (!in_array($action, [SatisfactionReveal::ACTION_REVEAL, SatisfactionReveal::ACTION_COPY], true)) {
+            $this->json(['error' => \MapasCulturais\i::__('Ação inválida.')], 400);
+
+            return;
+        }
+
+        $attempt = $app->repo(SatisfactionAttempt::class)->find((int) ($this->data['tentativa'] ?? 0));
+
+        if (!$attempt) {
+            $this->json(['error' => \MapasCulturais\i::__('Tentativa não encontrada.')], 404);
+
+            return;
+        }
+
+        if (!$plugin->canReveal($app->user)) {
+            $reveal->deny($app->user, $attempt, 'usuário fora de AVALIACAO_REVELAR_USUARIOS');
+            $this->json(['error' => \MapasCulturais\i::__('Seu usuário não pode revelar dados pessoais.')], 403);
+
+            return;
+        }
+
+        $until = $reveal->windowUntil($app->user);
+
+        if (!$until) {
+            $reveal->deny($app->user, $attempt, 'sem janela aberta');
+            $this->json(['error' => \MapasCulturais\i::__('Informe o motivo para revelar.'), 'janela' => false], 403);
+
+            return;
+        }
+
+        if ($attempt->payloadSealed === null || !$plugin->vault()) {
+            $this->json(['error' => \MapasCulturais\i::__('O conteúdo real desta tentativa não foi guardado.')], 404);
+
+            return;
+        }
+
+        try {
+            $payload = $reveal->reveal($app->user, $attempt, $action);
+        } catch (\RuntimeException | \JsonException $e) {
+            $app->log->error(sprintf('[GovBrSatisfaction] tentativa %d não abriu: %s', $attempt->id, $e->getMessage()));
+            $this->json(['error' => \MapasCulturais\i::__('Não foi possível abrir o conteúdo guardado.')], 500);
+
+            return;
+        }
+
+        $this->noStore();
+        $this->json(['payload' => $payload, 'ate' => $until]);
+    }
+
+    /** Resposta que não pode ficar em cache. */
+    protected function noStore(): void
+    {
+        $app = App::i();
+        $app->response = $app->response->withHeader('Cache-Control', 'no-store');
     }
 
     /** Situações que podem voltar à fila. */
@@ -436,6 +544,12 @@ class Requests extends \MapasCulturais\Controller
             'servicos' => $services,
             'loteIntervalo' => \GovBrSatisfaction\Jobs\SendSatisfactionRequestJob::BULK_INTERVAL,
             'loteMaximo' => self::BULK_MAX,
+            'revelacao' => [
+                'disponivel' => $plugin->vault() !== null,
+                'autorizado' => $plugin->canReveal(App::i()->user),
+                'motivoMinimo' => PayloadReveal::REASON_MIN,
+                'segundos' => PayloadReveal::WINDOW,
+            ],
         ]);
     }
 

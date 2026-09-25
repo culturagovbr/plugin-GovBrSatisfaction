@@ -273,7 +273,8 @@ $this->import('
                         <div class="govbr-request__historico" v-if="abertos[registro.id]" :id="'govbr-satisfaction-historico-' + registro.id">
                             <govbr-satisfaction-dispatches
                                 :key="registro.id + '-' + (versoes[registro.id] || 0)"
-                                :request-id="registro.id">
+                                :request-id="registro.id"
+                                :revelacao="status.revelacao">
                             </govbr-satisfaction-dispatches>
                         </div>
                     </li>

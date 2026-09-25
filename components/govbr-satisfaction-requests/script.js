@@ -24,7 +24,7 @@ app.component('govbr-satisfaction-requests', {
             carregando: false,
 
             // configuração vigente, para os avisos do topo
-            status: { devMode: false, faltando: [], servicos: [], loteIntervalo: 10, loteMaximo: 500 },
+            status: { devMode: false, faltando: [], servicos: [], loteIntervalo: 10, loteMaximo: 500, revelacao: { disponivel: false, autorizado: false, motivoMinimo: 10, segundos: 120 } },
 
             filtros: { situacao: '', servico: '', busca: '' },
 

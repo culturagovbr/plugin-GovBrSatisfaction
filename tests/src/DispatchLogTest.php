@@ -141,6 +141,35 @@ class DispatchLogTest extends TestCase
         $this->assertFalse((bool) $linha['response_truncated']);
     }
 
+    /** Com cofre, o payload real vai cifrado e amarrado à tentativa. */
+    function testComCofreGuardaOPayloadRealCifrado()
+    {
+        $cofre = \GovBrSatisfaction\Services\PayloadVault::fromConfig('1:' . base64_encode(random_bytes(32)));
+        $log = new DispatchLog($cofre);
+        $envio = $log->start($this->solicitacao(), SatisfactionDispatch::ORIGIN_REGISTRATION);
+
+        $log->recordAttempt($envio, 2, 3, Outcome::Sent->value, payload: self::PAYLOAD);
+
+        $cifrado = $this->tentativas()[0]['payload_sealed'];
+
+        $this->assertStringStartsWith('v1:', $cifrado);
+        $this->assertStringNotContainsString(self::CPF, $cifrado);
+        $this->assertSame(
+            self::PAYLOAD,
+            json_decode($cofre->open($cifrado, \GovBrSatisfaction\Services\PayloadVault::context($envio->uuid, 2)), true)
+        );
+    }
+
+    function testSemCofreNaoGuardaOPayloadReal()
+    {
+        $this->configurar(['payloadKeys' => '']);
+        $envio = $this->log->start($this->solicitacao(), SatisfactionDispatch::ORIGIN_REGISTRATION);
+
+        $this->log->recordAttempt($envio, 1, 3, Outcome::Sent->value, payload: self::PAYLOAD);
+
+        $this->assertNull($this->tentativas()[0]['payload_sealed']);
+    }
+
     /** Resposta grande é cortada sem quebrar caractere. */
     function testRespostaGrandeEhCortadaSemQuebrarCaractere()
     {

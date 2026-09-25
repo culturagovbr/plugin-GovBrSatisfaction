@@ -9,10 +9,50 @@ $this->import('
     mc-alert
     mc-icon
     mc-loading
+    mc-modal
 ');
 ?>
 <div class="govbr-dispatches">
     <mc-loading :condition="carregando"></mc-loading>
+
+    <!-- motivo que abre a janela de revelação -->
+    <mc-modal ref="motivo" classes="govbr-dispatches__modal" :title="text('motivoTitulo')" @close="pendente = null">
+        <template #default>
+            <p class="govbr-dispatches__nota">{{ fmt('motivoExplicacao', janelaMinutos) }}</p>
+            <div class="field">
+                <label :for="'govbr-dispatches-motivo-' + requestId">{{ text('motivo') }}</label>
+                <textarea
+                    :id="'govbr-dispatches-motivo-' + requestId"
+                    rows="3"
+                    maxlength="1000"
+                    v-model="motivo"
+                    :aria-describedby="'govbr-dispatches-motivo-contagem-' + requestId"
+                    :placeholder="text('motivoDica')"></textarea>
+                <small
+                    :id="'govbr-dispatches-motivo-contagem-' + requestId"
+                    class="govbr-dispatches__contagem"
+                    :class="{'govbr-dispatches__contagem--ok': motivoCompleto}">
+                    {{ fmt('motivoContagem', motivo.trim().length, revelacao.motivoMinimo) }}
+                </small>
+            </div>
+        </template>
+
+        <template #actions="modal">
+            <button type="button" class="button button--text button--md" @click="modal.close()">{{ text('cancelar') }}</button>
+            <button
+                type="button"
+                class="button button--primary button--md"
+                :disabled="liberando || !motivoCompleto"
+                @click="liberar(modal)">
+                {{ fmt('liberar', janelaMinutos) }}
+            </button>
+        </template>
+    </mc-modal>
+
+    <p class="govbr-dispatches__janela" v-if="restante > 0" role="status">
+        <mc-icon name="govbr-satisfaction-reveal"></mc-icon>
+        {{ fmt('janelaAberta', relogio) }}
+    </p>
 
     <template v-if="!carregando">
         <mc-alert v-if="erro" type="danger" role="alert">{{ erro }}</mc-alert>
@@ -104,7 +144,39 @@ $this->import('
                                 <mc-accordion class="govbr-dispatches__gaveta">
                                     <template #title>{{ text('payload') }}</template>
                                     <template #content>
-                                        <div class="govbr-dispatches__codigo" v-if="tentativa.payload">
+                                        <div class="govbr-dispatches__revelar" v-if="podeRevelar(tentativa)">
+                                            <template v-if="revelados[tentativa.id]">
+                                                <span class="govbr-dispatches__aviso">{{ fmt('dadosReais', relogio) }}</span>
+                                                <button type="button" class="button button--text button--sm" @click="ocultar(tentativa)">
+                                                    {{ text('ocultar') }}
+                                                </button>
+                                            </template>
+
+                                            <template v-else>
+                                                <button
+                                                    type="button"
+                                                    class="button button--primary-outline button--sm"
+                                                    :disabled="revelando === tentativa.id"
+                                                    @click="pedir(tentativa, 'revelar')">
+                                                    <mc-icon name="govbr-satisfaction-reveal"></mc-icon>
+                                                    {{ text('revelar') }}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    class="button button--text button--sm"
+                                                    :disabled="revelando === tentativa.id"
+                                                    @click="pedir(tentativa, 'copiar')">
+                                                    <mc-icon name="govbr-satisfaction-copy"></mc-icon>
+                                                    {{ text('copiarReais') }}
+                                                </button>
+                                            </template>
+                                        </div>
+
+                                        <div class="govbr-dispatches__codigo govbr-dispatches__codigo--real" v-if="revelados[tentativa.id]">
+                                            <pre class="govbr-dispatches__json" tabindex="0" :aria-label="text('dadosReaisRotulo')">{{ json(revelados[tentativa.id]) }}</pre>
+                                        </div>
+
+                                        <div class="govbr-dispatches__codigo" v-else-if="tentativa.payload">
                                             <button class="govbr-dispatches__copiar" type="button" @click="copiar(json(tentativa.payload))">
                                                 <mc-icon name="govbr-satisfaction-copy"></mc-icon>
                                                 <span>{{ text('copiar') }}</span>
@@ -112,7 +184,7 @@ $this->import('
                                             <pre class="govbr-dispatches__json" tabindex="0" :aria-label="text('payload')">{{ json(tentativa.payload) }}</pre>
                                         </div>
 
-                                        <p class="govbr-dispatches__nota" v-else>{{ text('semPayload') }}</p>
+                                        <p class="govbr-dispatches__nota" v-else-if="!tentativa.payload">{{ text('semPayload') }}</p>
                                     </template>
                                 </mc-accordion>
 
