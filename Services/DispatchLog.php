@@ -132,7 +132,7 @@ class DispatchLog
             : mb_substr(Mask::forLogText(self::utf8($detail), $known), 0, Result::DETAIL_MAX);
         $attempt->responseHeaders = $responseHeaders === null
             ? null
-            : array_values(array_map(fn($line) => Mask::forLogText(self::utf8((string) $line), $known), $responseHeaders));
+            : Mask::headers(array_map(fn($line) => self::utf8((string) $line), $responseHeaders), $known);
         $attempt->sentAt = $sentAt ?? new \DateTime();
         $attempt->durationMs = $durationMs;
 
