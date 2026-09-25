@@ -226,7 +226,7 @@ app.component('govbr-satisfaction-dispatches', {
                     return;
                 }
 
-                this.abrirJanela(data.ate, data.restantes);
+                this.abrirJanela(data.segundos, data.restantes);
 
                 if (acao === 'copiar') {
                     await this.copiar(this.json(data.payload));
@@ -257,7 +257,7 @@ app.component('govbr-satisfaction-dispatches', {
                     return;
                 }
 
-                this.abrirJanela(data.ate, data.restantes);
+                this.abrirJanela(data.segundos, data.restantes);
 
                 const pendente = this.pendente;
                 modal.close();
@@ -273,8 +273,9 @@ app.component('govbr-satisfaction-dispatches', {
             }
         },
 
-        abrirJanela(ate, restantes) {
-            this.janelaAte = ate * 1000;
+        // fim pelo relógio deste navegador, a partir dos segundos restantes no servidor
+        abrirJanela(segundos, restantes) {
+            this.janelaAte = Date.now() + segundos * 1000;
             this.restantes = restantes;
             this.agora = Date.now();
 
