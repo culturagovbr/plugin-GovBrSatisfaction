@@ -24,6 +24,9 @@ class SendSatisfactionRequestJob extends JobType
     /** Espera depois da primeira e da segunda falha. */
     const BACKOFF = ['+1 minutes', '+10 minutes'];
 
+    /** Espera do job enquanto o plugin está desligado. */
+    const DISABLED_WAIT = '+1 day';
+
     /** Resumo da solicitação recusada por falhas internas. */
     const INTERNAL_ERROR = 'erro interno ao processar';
 
@@ -60,7 +63,19 @@ class SendSatisfactionRequestJob extends JobType
         $app = App::i();
         $plugin = Plugin::instance();
 
-        if (!$plugin || !$plugin->config['enabled']) {
+        if (!$plugin) {
+            return true;
+        }
+
+        // desligado: o job fica na fila até o plugin voltar
+        if (!$plugin->config['enabled']) {
+            if ((int) ($job->request_id ?? 0) > 0) {
+                $app->enqueueOrReplaceJob(self::SLUG, [
+                    'request_id' => (int) $job->request_id,
+                    'crashes' => (int) ($job->crashes ?? 0),
+                ], self::DISABLED_WAIT);
+            }
+
             return true;
         }
 

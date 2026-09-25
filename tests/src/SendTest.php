@@ -536,4 +536,29 @@ class SendTest extends TestCase
         $this->assertSame(\GovBrSatisfaction\Jobs\SendSatisfactionRequestJob::INTERNAL_ERROR, $linha['send_detail']);
         $this->assertSame(['recusado'], array_column($this->envios(), 'state'));
     }
+
+    /** Desligar o plugin por um tempo não perde as pendentes. */
+    function testPluginDesligadoNaoPerdeAsPendentes()
+    {
+        $this->publicarEspaco();
+
+        $this->configurar(['enabled' => false]);
+        $this->processarEnvios();
+
+        $job = $this->conn()->fetchAssociative(
+            'SELECT create_timestamp, next_execution_timestamp FROM job WHERE name = ?',
+            ['govbr-satisfaction-send']
+        );
+        $this->assertNotFalse($job, 'o job saiu da fila com o plugin desligado');
+        $this->assertEqualsWithDelta(
+            86400,
+            (new \DateTime($job['next_execution_timestamp']))->getTimestamp() - (new \DateTime($job['create_timestamp']))->getTimestamp(),
+            5
+        );
+
+        $this->configurar(['enabled' => true]);
+        $this->processarEnvios();
+
+        $this->assertSituacao('enviado', $this->solicitacoes()[0], 'a pendente ficou sem job depois de religar o plugin');
+    }
 }
