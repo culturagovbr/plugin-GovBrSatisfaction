@@ -11,6 +11,9 @@ use MapasCulturais\App;
  */
 class FixtureClient implements Client
 {
+    /** Caminho registrado no histórico. */
+    const ENDPOINT = '/api/avaliacao/completa';
+
     public function send(array $payload): Result
     {
         $app = App::i();
@@ -25,7 +28,8 @@ class FixtureClient implements Client
             Outcome::Sent,
             200,
             'fixture: nenhuma requisição HTTP foi feita',
-            json_encode(['emailEnviado' => true, 'protocolo' => 'FIXTURE'], JSON_UNESCAPED_UNICODE)
+            json_encode(['emailEnviado' => true, 'protocolo' => 'FIXTURE'], JSON_UNESCAPED_UNICODE),
+            new Exchange('POST', self::ENDPOINT, new \DateTime(), simulated: true),
         );
     }
 }

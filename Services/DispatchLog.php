@@ -27,17 +27,61 @@ class DispatchLog
         $app = App::i();
 
         $dispatch = new SatisfactionDispatch();
-        $dispatch->request = $request;
+        $dispatch->request = $app->em->getReference(SatisfactionRequest::class, $request->id);
         $dispatch->uuid = self::uuid();
         $dispatch->origin = $origin;
-        $dispatch->user = $user;
+        $dispatch->user = $user ? $app->em->getReference(User::class, $user->id) : null;
 
-        $app->em->persist($dispatch);
-        $app->em->flush();
+        $this->persist($dispatch);
 
         $this->replacePending($request, $dispatch);
 
         return $dispatch;
+    }
+
+    /** Envio em curso da solicitação. */
+    public function pending(SatisfactionRequest $request): ?SatisfactionDispatch
+    {
+        return App::i()->repo(SatisfactionDispatch::class)->findOneBy(
+            ['request' => $request, 'state' => SatisfactionDispatch::STATE_PENDING],
+            ['createTimestamp' => 'DESC', 'id' => 'DESC']
+        );
+    }
+
+    /** Última tentativa da solicitação, em qualquer envio. */
+    public function lastAttempt(int $requestId): ?SatisfactionAttempt
+    {
+        return App::i()->em->createQuery(
+            'SELECT t
+               FROM ' . SatisfactionAttempt::class . ' t
+               JOIN t.dispatch d
+              WHERE IDENTITY(d.request) = :request
+           ORDER BY t.sentAt DESC, t.id DESC'
+        )
+            ->setParameter('request', $requestId)
+            ->setMaxResults(1)
+            ->getOneOrNullResult();
+    }
+
+    /** Executa uma gravação do histórico; a falha vai para o log e devolve nulo. */
+    public function guard(callable $write): mixed
+    {
+        $app = App::i();
+
+        if (!$app->em->isOpen()) {
+            return null;
+        }
+
+        try {
+            return $write();
+        } catch (\Throwable $e) {
+            $app->log->error(sprintf(
+                '[GovBrSatisfaction] falha ao gravar o histórico de envios: %s',
+                Mask::forLogText($e->getMessage())
+            ));
+
+            return null;
+        }
     }
 
     /** Envio pelo uuid. */
@@ -65,7 +109,7 @@ class DispatchLog
         $app = App::i();
 
         $attempt = new SatisfactionAttempt();
-        $attempt->dispatch = $dispatch;
+        $attempt->dispatch = $app->em->getReference(SatisfactionDispatch::class, $dispatch->id);
         $attempt->number = $number;
         $attempt->maxAttempts = $maxAttempts;
         $attempt->outcome = $outcome;
@@ -90,8 +134,7 @@ class DispatchLog
                 : $masked;
         }
 
-        $app->em->persist($attempt);
-        $app->em->flush();
+        $this->persist($attempt);
 
         return $attempt;
     }
@@ -163,6 +206,23 @@ class DispatchLog
     public function countByRequest(int $requestId): int
     {
         return App::i()->repo(SatisfactionDispatch::class)->count(['request' => $requestId]);
+    }
+
+    /** Grava a entidade; na falha, tira da unidade de trabalho. */
+    private function persist(object $entity): void
+    {
+        $em = App::i()->em;
+
+        try {
+            $em->persist($entity);
+            $em->flush();
+        } catch (\Throwable $e) {
+            if ($em->isOpen() && $em->contains($entity)) {
+                $em->detach($entity);
+            }
+
+            throw $e;
+        }
     }
 
     /** Marca como substituídos os pendentes anteriores da solicitação. */

@@ -71,9 +71,31 @@ class RequeueTest extends TestCase
         $this->assertSame(0, (int) $linha['send_attempts'], 'o contador precisa zerar, senão a linha volta a ser recusada na primeira falha');
         $this->assertNull($linha['send_timestamp']);
 
-        // o histórico fica, até a próxima tentativa sobrescrever
+        // o resumo fica, até a próxima tentativa sobrescrever
         $this->assertSame(500, (int) $linha['send_http_status']);
         $this->assertSame('Erro interno', $linha['send_detail']);
+    }
+
+    /** Devolver abre um envio com quem devolveu. */
+    function testDevolverAbreEnvioComOAutor()
+    {
+        $id = $this->recusada();
+
+        $admin = $this->userDirector->createUser('saasSuperAdmin');
+        $this->login($admin);
+        $this->devolver($id);
+
+        $envio = $this->envios()[0];
+
+        $this->assertSame('devolucao', $envio['origin']);
+        $this->assertSame('pendente', $envio['state']);
+        $this->assertSame($admin->id, (int) $envio['user_id']);
+
+        $this->processarEnvios();
+
+        $this->assertCount(1, $this->envios(), 'o job deveria usar o envio aberto na devolução');
+        $this->assertSame('enviado', $this->envios()[0]['state']);
+        $this->assertSame(1, (int) $this->ultimaTentativa()['number']);
     }
 
     function testDepoisDeDevolverAVarreduraEnvia()
@@ -151,6 +173,13 @@ class RequeueTest extends TestCase
         $this->processarEnvios();
 
         $this->assertSituacao('enviado', $this->solicitacoes()[0]);
+
+        // o envio automático foi substituído; o novo continua a contagem
+        [$automatico, $antecipado] = $this->envios();
+        $this->assertSame('substituido', $automatico['state']);
+        $this->assertSame('tentar-agora', $antecipado['origin']);
+        $this->assertSame('enviado', $antecipado['state']);
+        $this->assertSame(2, (int) $this->ultimaTentativa()['number']);
     }
 
     function testPendenteSemTentativaNaoVolta()

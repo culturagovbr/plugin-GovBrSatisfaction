@@ -7,6 +7,8 @@ use GovBrSatisfaction\Bsc\Client;
 use GovBrSatisfaction\Bsc\Outcome;
 use GovBrSatisfaction\Bsc\Result;
 use GovBrSatisfaction\Bsc\Payload;
+use GovBrSatisfaction\Entities\SatisfactionAttempt;
+use GovBrSatisfaction\Entities\SatisfactionDispatch;
 use GovBrSatisfaction\Entities\SatisfactionRequest;
 use GovBrSatisfaction\Jobs\SendSatisfactionRequestJob;
 use GovBrSatisfaction\Plugin;
@@ -20,11 +22,14 @@ use MapasCulturais\Entities\User;
  */
 class SatisfactionSender
 {
-    /** 500 da aplicação antes de recusar. */
+    /** Falhas antes de recusar. */
     const MAX_ATTEMPTS = 3;
 
-    public function __construct(private readonly Plugin $plugin)
+    private readonly DispatchLog $log;
+
+    public function __construct(private readonly Plugin $plugin, ?DispatchLog $log = null)
     {
+        $this->log = $log ?? new DispatchLog();
     }
 
     /** Resolve uma pendente: descarta, marca sem CPF ou envia. */
@@ -47,20 +52,26 @@ class SatisfactionSender
             return SendOutcome::Done;
         }
 
+        $dispatch = $this->log->guard(fn() => $this->log->pending($request)
+            ?? $this->log->start($request, SatisfactionDispatch::ORIGIN_REGISTRATION));
+
         $cpf = Payload::cpf($request->user, $this->plugin->config['metadataFieldCPF']);
 
         if (!$cpf) {
             $request->sendStatus = SatisfactionRequest::STATUS_NO_CPF;
             $request->save(true);
 
+            $this->close($dispatch, $request->sendStatus);
+
             return SendOutcome::Done;
         }
 
         $payload = Payload::build($request, $cpf);
+        $number = (int) $request->sendAttempts + 1;
+        $startedAt = new \DateTime();
 
-        // Cópia mascarada do corpo, gravada antes do envio.
         try {
-            $request->sendPayload = Payload::encode(Mask::forScreen($payload));
+            Payload::encode($payload);
         } catch (\JsonException $e) {
             $app->log->error(sprintf(
                 '[GovBrSatisfaction] corpo da solicitação %d não codifica: %s',
@@ -68,17 +79,17 @@ class SatisfactionSender
                 Mask::forLogText($e->getMessage())
             ));
 
+            $result = new Result(Outcome::Rejected, null, 'erro ao montar o corpo: ' . $e->getMessage());
+
             $request->sendStatus = SatisfactionRequest::STATUS_REJECTED;
-            $request->sendDetail = 'erro ao montar o corpo: ' . Mask::forLogText($e->getMessage());
+            $request->sendDetail = self::detail($result);
             $request->save(true);
+
+            $this->record($dispatch, $number, $result, null, $startedAt);
+            $this->close($dispatch, $request->sendStatus);
 
             return SendOutcome::Done;
         }
-
-        $request->save(true);
-
-        // Exceção do cliente vira falha da linha.
-        $threw = false;
 
         try {
             $result = $client->send($payload);
@@ -89,54 +100,50 @@ class SatisfactionSender
                 Mask::forLogText($e->getMessage())
             ));
 
-            $threw = true;
             $result = new Result(Outcome::Retry, null, 'erro no envio: ' . $e->getMessage());
         }
 
-        $request->sendHttpStatus = $result->status;
-        $request->sendResponse = $result->body === null ? null : Mask::forBody($result->body);
-        $request->sendDetail = $result->detail === null
-            ? null
-            : mb_substr(Mask::forLogText($result->detail), 0, Result::DETAIL_MAX);
+        $failed = $result->outcome === Outcome::Retry;
+        $giveUp = $failed && $number >= self::MAX_ATTEMPTS;
 
-        if ($result->outcome === Outcome::Sent) {
-            $request->sendStatus = SatisfactionRequest::STATUS_SENT;
-            $request->sendTimestamp = new \DateTime();
-            $request->save(true);
-
-            return SendOutcome::Done;
-        }
-
-        $giveUp = false;
-        $rowFailed = $result->outcome === Outcome::Retry && ($threw || self::countsAsAttempt($result));
-
-        if ($rowFailed) {
-            $request->sendAttempts = (int) $request->sendAttempts + 1;
-            $giveUp = $request->sendAttempts >= self::MAX_ATTEMPTS;
+        if ($failed) {
+            $request->sendAttempts = $number;
         }
 
         if ($giveUp) {
             $app->log->error(sprintf(
                 '[GovBrSatisfaction] solicitação %d recusada após %d tentativas sem sucesso',
                 $request->id,
-                $request->sendAttempts
+                $number
             ));
         }
 
-        $request->sendStatus = $result->outcome === Outcome::Rejected || $giveUp
-            ? SatisfactionRequest::STATUS_REJECTED
-            : SatisfactionRequest::STATUS_PENDING;
+        $request->sendHttpStatus = $result->status;
+        $request->sendDetail = self::detail($result);
+        $request->sendStatus = match (true) {
+            $result->outcome === Outcome::Sent => SatisfactionRequest::STATUS_SENT,
+            $result->outcome === Outcome::Rejected, $giveUp => SatisfactionRequest::STATUS_REJECTED,
+            default => SatisfactionRequest::STATUS_PENDING,
+        };
+
+        if ($request->sendStatus === SatisfactionRequest::STATUS_SENT) {
+            $request->sendTimestamp = new \DateTime();
+        }
 
         $request->save(true);
 
-        if ($request->sendStatus === SatisfactionRequest::STATUS_REJECTED) {
-            return SendOutcome::Done;
+        $this->record($dispatch, $number, $result, $payload, $startedAt);
+
+        if ($request->sendStatus === SatisfactionRequest::STATUS_PENDING) {
+            return SendOutcome::Retry;
         }
 
-        return $rowFailed ? SendOutcome::RetryRow : SendOutcome::RetryTransport;
+        $this->close($dispatch, $request->sendStatus);
+
+        return SendOutcome::Done;
     }
 
-    /** Devolve à fila: zera tentativas, mantém a última resposta. */
+    /** Devolve à fila: zera tentativas e abre um envio. */
     public function requeue(SatisfactionRequest $request, User $by): void
     {
         $app = App::i();
@@ -161,6 +168,8 @@ class SatisfactionSender
         } finally {
             $app->enableAccessControl();
         }
+
+        $this->log->guard(fn() => $this->log->start($request, SatisfactionDispatch::ORIGIN_REQUEUE, $by));
 
         SendSatisfactionRequestJob::enqueue($request);
     }
@@ -191,8 +200,10 @@ class SatisfactionSender
             $app->em->flush();
 
             foreach (array_values($requests) as $i => $request) {
+                $this->log->guard(fn() => $this->log->start($request, SatisfactionDispatch::ORIGIN_BULK, $by));
+
                 $delay = $i * SendSatisfactionRequestJob::BULK_INTERVAL;
-                SendSatisfactionRequestJob::enqueue($request, 0, $delay > 0 ? "+{$delay} seconds" : 'now');
+                SendSatisfactionRequestJob::enqueue($request, $delay > 0 ? "+{$delay} seconds" : 'now');
             }
         } finally {
             $app->enableAccessControl();
@@ -212,7 +223,7 @@ class SatisfactionSender
         return count($requests);
     }
 
-    /** Antecipa a tentativa, sem zerar tentativas. */
+    /** Antecipa a tentativa em um envio novo, sem zerar tentativas. */
     public function retryNow(SatisfactionRequest $request, User $by): void
     {
         App::i()->log->info(sprintf(
@@ -223,12 +234,50 @@ class SatisfactionSender
             Mask::forLogText($request->sendDetail ?? '-')
         ));
 
+        $this->log->guard(fn() => $this->log->start($request, SatisfactionDispatch::ORIGIN_RETRY_NOW, $by));
+
         SendSatisfactionRequestJob::enqueue($request);
     }
 
-    /** Só 500 conta como tentativa. */
-    private static function countsAsAttempt(Result $result): bool
+    /** Grava a tentativa no envio. */
+    private function record(?SatisfactionDispatch $dispatch, int $number, Result $result, ?array $payload, \DateTime $startedAt): void
     {
-        return $result->status === 500;
+        if (!$dispatch) {
+            return;
+        }
+
+        $exchange = $result->exchange;
+
+        $this->log->guard(fn() => $this->log->recordAttempt(
+            $dispatch,
+            number: $number,
+            maxAttempts: self::MAX_ATTEMPTS,
+            outcome: $exchange?->simulated ? SatisfactionAttempt::OUTCOME_SIMULATED : $result->outcome->value,
+            payload: $payload,
+            httpStatus: $result->status,
+            response: $result->body,
+            detail: $result->detail,
+            method: $exchange?->method,
+            endpoint: $exchange?->endpoint,
+            responseHeaders: $exchange?->responseHeaders,
+            durationMs: $exchange?->durationMs,
+            sentAt: $exchange?->sentAt ?? $startedAt,
+        ));
+    }
+
+    /** Encerra o envio na situação da solicitação. */
+    private function close(?SatisfactionDispatch $dispatch, string $state): void
+    {
+        if ($dispatch) {
+            $this->log->guard(fn() => $this->log->finish($dispatch, $state));
+        }
+    }
+
+    /** Resumo mascarado, no tamanho da coluna. */
+    private static function detail(Result $result): ?string
+    {
+        return $result->detail === null
+            ? null
+            : mb_substr(Mask::forLogText($result->detail), 0, Result::DETAIL_MAX);
     }
 }

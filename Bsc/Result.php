@@ -22,6 +22,13 @@ final class Result
         public readonly ?int $status = null,
         public readonly ?string $detail = null,
         public readonly ?string $body = null,
+        public readonly ?Exchange $exchange = null,
     ) {
+    }
+
+    /** Cópia com a requisição que a produziu. */
+    public function withExchange(Exchange $exchange): self
+    {
+        return new self($this->outcome, $this->status, $this->detail, $this->body, $exchange);
     }
 }

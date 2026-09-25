@@ -26,8 +26,6 @@ use Doctrine\ORM\Mapping as ORM;
  * @property int $sendAttempts
  * @property int|null $sendHttpStatus
  * @property string|null $sendDetail
- * @property string|null $sendResponse
- * @property string|null $sendPayload
  * @ORM\Table(name="govbr_satisfaction_request")
  * @ORM\Entity(repositoryClass="MapasCulturais\Repository")
  * @package GovBrSatisfaction
@@ -175,7 +173,7 @@ class SatisfactionRequest extends \MapasCulturais\Entity
     protected $sendTimestamp;
 
     /**
-     * Tentativas com 500 da aplicação.
+     * Falhas no envio em curso.
      *
      * @var int
      * @ORM\Column(name="send_attempts", type="smallint", nullable=false)
@@ -199,22 +197,6 @@ class SatisfactionRequest extends \MapasCulturais\Entity
      * @ORM\Column(name="send_detail", type="string", length=500, nullable=true)
      */
     protected $sendDetail;
-
-    /**
-     * Corpo da última resposta, sem a pilha de exceção.
-     *
-     * @var string|null
-     * @ORM\Column(name="send_response", type="text", nullable=true)
-     */
-    protected $sendResponse;
-
-    /**
-     * Corpo enviado, com dados pessoais mascarados.
-     *
-     * @var string|null
-     * @ORM\Column(name="send_payload", type="text", nullable=true)
-     */
-    protected $sendPayload;
 
     public function setSubsite(?\MapasCulturais\Entities\Subsite $subsite): void
     {

@@ -71,7 +71,8 @@ class RequeueAllTest extends TestCase
     function testDevolveTodasComJobsEscalonados()
     {
         $this->recusadas();
-        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+        $admin = $this->userDirector->createUser('saasSuperAdmin');
+        $this->login($admin);
 
         [$status, $corpo] = $this->devolverTodas();
 
@@ -82,6 +83,11 @@ class RequeueAllTest extends TestCase
 
         $this->assertSame(4, $this->contar("send_status = 'pendente' AND send_attempts = 0"));
         $this->assertSame(0, $this->contar("send_status = 'recusado'"));
+
+        $envios = $this->envios();
+        $this->assertCount(4, $envios, 'um envio por solicitação');
+        $this->assertSame(['lote'], array_values(array_unique(array_column($envios, 'origin'))));
+        $this->assertSame([(string) $admin->id], array_values(array_unique(array_map('strval', array_column($envios, 'user_id')))));
 
         $jobs = $this->jobsDoPlugin();
         $this->assertCount(4, $jobs, 'um job por solicitação');

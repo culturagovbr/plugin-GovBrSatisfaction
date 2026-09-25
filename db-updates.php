@@ -71,24 +71,6 @@ return [
             ADD COLUMN send_detail VARCHAR(500) NULL");
     },
 
-    'add send_response to govbr_satisfaction_request' => function () {
-        if (__column_exists('govbr_satisfaction_request', 'send_response')) {
-            return;
-        }
-
-        __exec("ALTER TABLE govbr_satisfaction_request
-            ADD COLUMN send_response TEXT NULL");
-    },
-
-    'add send_payload to govbr_satisfaction_request' => function () {
-        if (__column_exists('govbr_satisfaction_request', 'send_payload')) {
-            return;
-        }
-
-        __exec("ALTER TABLE govbr_satisfaction_request
-            ADD COLUMN send_payload TEXT NULL");
-    },
-
     'create govbr_satisfaction_dispatch table' => function () {
         if (__table_exists('govbr_satisfaction_dispatch')) {
             return;
@@ -156,5 +138,13 @@ return [
 
         __exec("CREATE INDEX IDX_govbr_satisfaction_attempt__dispatch
             ON govbr_satisfaction_attempt (dispatch_id, number)");
+    },
+
+    'drop send_payload and send_response from govbr_satisfaction_request' => function () {
+        foreach (['send_payload', 'send_response'] as $column) {
+            if (__column_exists('govbr_satisfaction_request', $column)) {
+                __exec("ALTER TABLE govbr_satisfaction_request DROP COLUMN {$column}");
+            }
+        }
     },
 ];

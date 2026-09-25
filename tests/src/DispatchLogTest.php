@@ -35,16 +35,6 @@ class DispatchLogTest extends TestCase
         return App::i()->repo(SatisfactionRequest::class)->find((int) $this->solicitacoes()[0]['id']);
     }
 
-    protected function envios(): array
-    {
-        return $this->conn()->fetchAllAssociative('SELECT * FROM govbr_satisfaction_dispatch ORDER BY id');
-    }
-
-    protected function tentativas(): array
-    {
-        return $this->conn()->fetchAllAssociative('SELECT * FROM govbr_satisfaction_attempt ORDER BY id');
-    }
-
     function testAbreEnvioPendenteComUuidEAutor()
     {
         $admin = $this->userDirector->createUser('saasSuperAdmin');
