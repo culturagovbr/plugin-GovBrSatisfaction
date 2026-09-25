@@ -297,14 +297,17 @@ abstract class TestCase extends \Tests\Abstract\TestCase
         $app->enableAccessControl();
     }
 
-    /** Executa os jobs existentes, um por vez, sem subsite. */
+    /** Executa os jobs existentes, um por vez, sem subsite; o expurgo diário não conta. */
     protected function processarEnvios(): void
     {
         $app = App::i();
 
         $app->em->flush();
 
-        $existentes = (int) $this->conn()->fetchOne('SELECT count(*) FROM job');
+        $existentes = (int) $this->conn()->fetchOne(
+            'SELECT count(*) FROM job WHERE name <> ?',
+            [\GovBrSatisfaction\Jobs\PurgeSatisfactionHistoryJob::SLUG]
+        );
 
         if ($existentes === 0) {
             return;

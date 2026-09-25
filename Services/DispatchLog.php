@@ -148,6 +148,17 @@ class DispatchLog
         return $attempt;
     }
 
+    /** Apaga o payload cifrado e a resposta das tentativas anteriores à data; devolve quantas. */
+    public function purge(\DateTime $before): int
+    {
+        return (int) App::i()->em->createQuery(
+            'UPDATE ' . SatisfactionAttempt::class . ' t
+                SET t.payloadSealed = NULL, t.response = NULL, t.responseTruncated = false
+              WHERE t.sentAt < :before
+                AND (t.payloadSealed IS NOT NULL OR t.response IS NOT NULL)'
+        )->execute(['before' => $before]);
+    }
+
     /** Encerra o envio se ainda estiver pendente; devolve se encerrou. */
     public function finish(SatisfactionDispatch $dispatch, string $state): bool
     {

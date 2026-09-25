@@ -1,96 +1,92 @@
 # GovBrSatisfaction
 
-Integração da API de Avaliação de Satisfação com Serviços Públicos Digitais (gov.br, via BSC) aos seis serviços do Ministério da Cultura publicados no Portal de Serviços.
-
-Ao concluir um dos serviços, o Mapa grava uma solicitação e um job avisa o BSC, que envia ao cidadão um e-mail com o link do questionário. Não há tela de avaliação nem consentimento aqui, só o painel de consulta.
+Integra os serviços do Ministério da Cultura publicados no Portal de Serviços à API de Avaliação de Satisfação do gov.br (BSC). Ao concluir um serviço, o cidadão recebe do gov.br um e-mail com o questionário.
 
 ## Instalação
 
-Ative o plugin em `config/plugins.php` (a lista base precisa ser repetida por inteiro: a configuração é montada com `array_merge`):
+Inclua `GovBrSatisfaction` na lista de plugins de `config/plugins.php`.
 
-```php
-'plugins' => ['MultipleLocalAuth', 'AdminLoginAsUser', 'RecreatePCacheOnLogin', 'SpamDetector', 'Security', 'GovBrSatisfaction']
-```
+Para desligar sem remover, use `enabled => false` na configuração do plugin.
 
-Para desligar sem remover, `enabled => false` na configuração do plugin.
-
-## Serviços e gatilhos
+## Serviços
 
 | Serviço | Entidade | Gatilho |
 | --- | --- | --- |
 | Cadastrar-se | User | Confirmação do e-mail |
-| Cadastrar coletivo | Agent | Publicação (agente individual não conta) |
+| Cadastrar coletivo | Agent | Publicação de agente coletivo |
 | Cadastrar oportunidade | Opportunity | Publicação |
 | Cadastrar evento cultural | Event | Publicação |
 | Cadastrar espaço cultural | Space | Publicação |
 | Cadastrar projeto cultural | Project | Publicação |
 
-Publicação inclui "criar e publicar" numa etapa. Cada usuário avalia cada serviço uma única vez (índice único `(user_id, servico)`). Publicação em subsite diferente do configurado é descartada.
+Cada usuário recebe uma pesquisa por serviço, no subsite configurado.
 
 ## Configuração
 
-Por variáveis de ambiente. **Faltando qualquer uma, nada é registrado**; o painel aponta quais faltam.
+Obrigatórias:
 
-| Variável | Papel |
+| Variável | Descrição |
 | --- | --- |
-| `AVALIACAO_DEV_MODE` | `TRUE` ou `FALSE`. **Ausente equivale a `TRUE`**: nenhuma requisição sai da máquina |
-| `AVALIACAO_BSC_URL` | Endereço do BSC **com o prefixo da API**, ex. `https://bsc.../avaliacoes` |
-| `AVALIACAO_ORGAO` | ID do MinC no Portal de Serviços |
-| `AVALIACAO_SUBSITE_ID` | ID do subsite do Mapa da Cultura **neste ambiente** (4 em homologação e produção) |
+| `AVALIACAO_DEV_MODE` | `TRUE` ou `FALSE`; ausente equivale a `TRUE` (nada é enviado) |
+| `AVALIACAO_BSC_URL` | Endereço do BSC com o prefixo da API |
+| `AVALIACAO_ORGAO` | ID do órgão no Portal de Serviços |
+| `AVALIACAO_SUBSITE_ID` | ID do subsite atendido |
 | `AVALIACAO_SERVICO_CADASTRO` | ID do serviço "Cadastrar-se" |
 | `AVALIACAO_SERVICO_COLETIVO` | ID do serviço "Cadastrar coletivo" |
 | `AVALIACAO_SERVICO_OPORTUNIDADE` | ID do serviço "Cadastrar oportunidade" |
 | `AVALIACAO_SERVICO_EVENTO` | ID do serviço "Cadastrar evento cultural" |
 | `AVALIACAO_SERVICO_ESPACO` | ID do serviço "Cadastrar espaço cultural" |
 | `AVALIACAO_SERVICO_PROJETO` | ID do serviço "Cadastrar projeto cultural" |
+| `RCV_BSC_AUTH_TOKEN`, `RCV_BSC_CLIENT_ID`, `RCV_BSC_CLIENT_SECRET` | Credenciais do gateway do BSC |
 
-As credenciais do gateway são as `RCV_BSC_*` já existentes (mesma autenticação da consulta de CNPJ).
+Opcionais:
 
-## Envio e retentativa
+| Variável | Descrição |
+| --- | --- |
+| `AVALIACAO_CHAVES_PAYLOAD` | Chaves do conteúdo cifrado, `versão:base64` separadas por vírgula; a maior versão cifra |
+| `AVALIACAO_REVELAR_USUARIOS` | IDs dos usuários que podem revelar o conteúdo real, separados por vírgula |
+| `AVALIACAO_RETENCAO_DIAS` | Dias até apagar o conteúdo cifrado e a resposta do BSC; padrão `180`, `0` desliga |
 
-Cada solicitação tem o próprio job, enfileirado no gatilho para agora; em operação normal o envio acontece segundos depois da publicação. A linha fica `pendente` durante o POST e só vira `enviado` com a resposta; se o processo morrer no meio, a retentativa recebe "Avaliação já enviada" do BSC, que deduplica por CPF e serviço.
+Gerar uma chave:
 
-Cada chamada ao BSC tem 10 s para conectar e 30 s no total. Quando o envio não conclui, o próprio job se reagenda:
+```bash
+php -r 'echo "1:".base64_encode(random_bytes(32)), PHP_EOL;'
+```
 
-- **Transporte** (token, rede, 3xx, 502/503/504): `+1 min`, `+10 min`, depois `+30 min` enquanto durar. A linha não é penalizada.
-- **500 da aplicação**, ou exceção no cliente: conta uma tentativa e reagenda em `+1 min`. Após 3, a linha vira `recusado`.
+## Funcionamento
 
-"Avaliação já enviada" (500) é envio. Em 2xx, `emailEnviado: false` também é envio (o e-mail conclui do lado deles) e fica registrado no detalhe.
+- Cada solicitação é enviada por um job próprio.
+- Cada envio registra suas tentativas, com HTTP, duração, endpoint, payload e resposta.
+- Após 3 falhas a solicitação fica `recusado`; um 4xx recusa na hora.
+- Um job diário apaga o conteúdo cifrado e a resposta das tentativas mais antigas que o prazo de retenção.
+
+| Situação | Descrição |
+| --- | --- |
+| `pendente` | Aguardando envio |
+| `enviado` | Enviado ao BSC |
+| `recusado` | Recusado pelo BSC ou tentativas esgotadas |
+| `sem-cpf` | Usuário sem CPF no cadastro |
 
 ## Painel
 
-Página **Satisfação gov.br**, sob Administração, restrita a `saasSuperAdmin` e existente só no subsite atendido (fora dele, página e endpoints respondem 404).
+Página **Satisfação gov.br**, em Administração, para `saasSuperAdmin`.
 
-| Situação | Significado |
-| --- | --- |
-| `pendente` | Aguardando o job (segundos), ou o reagendamento se o BSC estiver fora |
-| `enviado` | O Mapa disparou. **Não** significa que o cidadão recebeu o e-mail |
-| `recusado` | O BSC recusou em definitivo, ou o teto de tentativas esgotou |
-| `sem-cpf` | Usuário sem CPF no cadastro; nada foi enviado |
-
-Cada linha abre o conteúdo enviado (mascarado) e a resposta do BSC. Ações, com confirmação e registro no log:
-
-- **Devolver à fila** (`recusado`, `sem-cpf`): zera as tentativas e volta a `pendente`; o CPF é relido do cadastro.
-- **Tentar agora** (`pendente` que já falhou): antecipa o job, sem zerar as tentativas.
-- **Devolver todas à fila** (filtro em `recusado`): as recusadas do filtro atual, até 500 por clique, com os jobs escalonados de 10 s para não virar rajada contra o BSC.
+- Busca por nome, id do usuário ou uuid do envio, com filtros por situação e serviço.
+- Histórico de envios e tentativas de cada solicitação.
+- Ações: **Devolver à fila**, **Tentar agora**, **Devolver selecionadas** e **Devolver todas à fila**.
 
 ## Dados pessoais
 
-A tabela não guarda CPF, nome nem e-mail por extenso: a cópia do envio em `send_payload` é gravada já mascarada (`776.***.***-68`, `m***@example.com`, `Maria ***`), e o log mascara o que ecoar do BSC. O vínculo com a pessoa é o `user_id`.
+- CPF, nome, e-mail e IP são gravados e exibidos mascarados.
+- Com `AVALIACAO_CHAVES_PAYLOAD`, o payload real de cada tentativa é guardado cifrado.
+- Os usuários de `AVALIACAO_REVELAR_USUARIOS` podem revelar ou copiar o payload real após informar um motivo, por tempo limitado.
+- Cada revelação é registrada.
 
 ## Testes
 
-A suíte roda sobre a do repositório principal, com o `tests/docker-compose.yml` deste plugin por cima (ele monta o plugin em `src/plugins/GovBrSatisfaction`, ativa-o e define as variáveis; os comentários do arquivo explicam cada linha). Nenhum teste toca `bsc.cultura.gov.br`.
-
-Com `cwd = tests/` do repositório principal:
+A partir de `tests/` do repositório principal:
 
 ```bash
 docker compose -f docker-compose.yml -f ../src/plugins/GovBrSatisfaction/tests/docker-compose.yml \
-  run --rm mapas pu /var/www/tests/GovBrSatisfaction                          # suíte
-  run --rm mapas pu /var/www/tests/GovBrSatisfaction/TriggerTest.php          # um arquivo
-  run --rm mapas pu /var/www/tests/GovBrSatisfaction/TriggerTest.php --filter testPublicarEspacoRegistra
+  run --rm mapas pu /var/www/tests/GovBrSatisfaction
 ```
-
-- Estenda `Tests\GovBrSatisfaction\TestCase`: cria os subsites, restaura a configuração do plugin, limpa a tabela e traz os helpers (`publicar()`, `processarEnvios()`, `clienteQueDevolve()`…).
-- A resposta do BSC é testada por `HttpClient::interpret()`; o envio, por um `Client` injetado via `configurar(['client' => ...])`.
-- O transporte (curl, token, timeouts) é testado em `HttpTransportTest` contra um servidor simulado no loopback (`tests/src/Fake/bsc-server.php`).
