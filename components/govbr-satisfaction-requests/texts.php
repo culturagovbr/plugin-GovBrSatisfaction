@@ -18,6 +18,24 @@ return [
     'projeto' => i::__('Cadastrar projeto cultural'),
 
     'todos' => i::__('Todos'),
+    'todas' => i::__('Todas'),
+
+    // busca e filtros
+    'buscar' => i::__('Nome, id do usuário ou uuid do envio'),
+    'filtrarSituacao' => i::__('Filtrar por situação'),
+    'registradaEm' => i::__('registrada em %s'),
+    'disparadaEm' => i::__('disparada em %s'),
+
+    // seleção para devolver à fila
+    'selecionarTodas' => i::__('Selecionar as recusadas e sem CPF desta página'),
+    'selecionar' => i::__('Selecionar a solicitação %s'),
+    'selecionadas' => i::__('%s selecionada(s)'),
+    'acimaDoTeto' => i::__('Selecione no máximo %s por vez.'),
+    'limparSelecao' => i::__('Limpar seleção'),
+    'devolverSelecionadas' => i::__('Devolver selecionadas (%s)'),
+    'devolverSelecionadasTitulo' => i::__('Devolver selecionadas à fila?'),
+    'devolverSelecionadasIgnoradas' => i::__('%s selecionada(s) já não estavam recusadas nem sem CPF e ficaram de fora.'),
+    'devolverSelecionadasErro' => i::__('Não foi possível devolver as selecionadas à fila.'),
 
     'disparadoExplicacao' => i::__('"Disparado" significa que o Mapa enviou a solicitação ao BSC. A confirmação de entrega do e-mail fica do lado do gov.br.'),
 
