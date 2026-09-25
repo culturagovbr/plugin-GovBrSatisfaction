@@ -84,6 +84,7 @@ class RevealEndpointTest extends TestCase
 
         $this->assertSame(200, $status);
         $this->assertSame('no-store', $cache);
+        $this->assertEqualsWithDelta(PayloadReveal::WINDOW, $dados['segundos'], 2);
         $this->assertSame(self::CPF, $dados['payload']['cpfCidadao']);
         $this->assertSame($this->cidadao->email, $dados['payload']['email']);
 

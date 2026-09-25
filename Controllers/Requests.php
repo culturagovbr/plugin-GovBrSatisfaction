@@ -348,7 +348,12 @@ class Requests extends \MapasCulturais\Controller
         }
 
         $this->noStore();
-        $this->json(['payload' => $payload, 'ate' => $until, 'restantes' => $reveal->remaining()]);
+        $this->json([
+            'payload' => $payload,
+            'ate' => $until,
+            'segundos' => max(0, $until - time()),
+            'restantes' => $reveal->remaining(),
+        ]);
     }
 
     /** Resposta que não pode ficar em cache. */
