@@ -22,7 +22,7 @@ $this->import('
     </mc-alert>
 
     <mc-alert type="danger" v-if="status.faltando.length">
-        {{ fmt('faltandoConfig', status.faltando.join(', ')) }}
+        {{ formatar('faltandoConfig', status.faltando.join(', ')) }}
     </mc-alert>
 
     <mc-card>
@@ -80,7 +80,7 @@ $this->import('
 
             <div class="govbr-satisfaction__monitor">
                 <span class="govbr-satisfaction__hint" v-if="tempoReal && atualizadoEm" aria-live="polite">
-                    {{ fmt('atualizadoEm', hora(atualizadoEm)) }}
+                    {{ formatar('atualizadoEm', hora(atualizadoEm)) }}
                 </span>
 
                 <button type="button" class="button button--primary-outline button--sm" v-if="!tempoReal" :disabled="carregando" @click="atualizar">
@@ -111,10 +111,10 @@ $this->import('
                 </label>
 
                 <div class="govbr-satisfaction__resumo">
-                    <span class="govbr-satisfaction__contador">{{ fmt('selecionadas', totalSelecionadas) }}</span>
+                    <span class="govbr-satisfaction__contador">{{ formatar('selecionadas', totalSelecionadas) }}</span>
 
                     <span class="govbr-satisfaction__limite" v-if="acimaDoTeto">
-                        {{ fmt('acimaDoTeto', status.loteMaximo) }}
+                        {{ formatar('acimaDoTeto', status.loteMaximo) }}
                     </span>
 
                     <button type="button" class="button button--text button--sm" v-if="totalSelecionadas" @click="limparSelecao">
@@ -123,7 +123,7 @@ $this->import('
 
                     <mc-modal classes="govbr-satisfaction__modal" :title="text('devolverSelecionadasTitulo')">
                         <template #default>
-                            <p>{{ fmt('devolverTodasConfirmacao', totalSelecionadas, status.loteIntervalo, duracao(Math.max(0, totalSelecionadas - 1) * status.loteIntervalo)) }}</p>
+                            <p>{{ formatar('devolverTodasConfirmacao', totalSelecionadas, status.loteIntervalo, duracao(Math.max(0, totalSelecionadas - 1) * status.loteIntervalo)) }}</p>
                         </template>
 
                         <template #actions="modal">
@@ -146,7 +146,7 @@ $this->import('
                                 :disabled="!podeDevolverSelecionadas"
                                 @click="modal.open()">
                                 <mc-icon name="govbr-satisfaction-requeue"></mc-icon>
-                                {{ fmt('devolverSelecionadas', totalSelecionadas) }}
+                                {{ formatar('devolverSelecionadas', totalSelecionadas) }}
                             </button>
                         </template>
                     </mc-modal>
@@ -155,11 +155,11 @@ $this->import('
 
             <!-- lote: todas as recusadas do filtro, além da página -->
             <div class="govbr-satisfaction__lote" v-if="podeDevolverTodas">
-                <span>{{ fmt('loteResumo', total) }}</span>
+                <span>{{ formatar('loteResumo', total) }}</span>
                 <mc-modal classes="govbr-satisfaction__modal" :title="text('devolverTodasTitulo')">
                     <template #default>
-                        <p>{{ fmt('devolverTodasConfirmacao', loteTamanho, status.loteIntervalo, duracao(Math.max(0, loteTamanho - 1) * status.loteIntervalo)) }}</p>
-                        <p class="govbr-satisfaction__nota" v-if="total > loteTamanho">{{ fmt('devolverTodasTeto', loteTamanho, total) }}</p>
+                        <p>{{ formatar('devolverTodasConfirmacao', loteTamanho, status.loteIntervalo, duracao(Math.max(0, loteTamanho - 1) * status.loteIntervalo)) }}</p>
+                        <p class="govbr-satisfaction__nota" v-if="total > loteTamanho">{{ formatar('devolverTodasTeto', loteTamanho, total) }}</p>
                     </template>
 
                     <template #actions="modal">
@@ -178,7 +178,7 @@ $this->import('
                     <template #button="modal">
                         <button class="button button--primary-outline button--sm govbr-satisfaction__bulk" @click="modal.open()">
                             <mc-icon name="govbr-satisfaction-requeue"></mc-icon>
-                            {{ fmt('devolverTodas', total) }}
+                            {{ formatar('devolverTodas', total) }}
                         </button>
                     </template>
                 </mc-modal>
@@ -216,7 +216,7 @@ $this->import('
                                     type="checkbox"
                                     :checked="!!selecionados[registro.id]"
                                     :disabled="!selecionavel(registro)"
-                                    :aria-label="fmt('selecionar', registro.id)"
+                                    :aria-label="formatar('selecionar', registro.id)"
                                     @change="alternarSelecao(registro)">
                             </label>
 
@@ -227,7 +227,7 @@ $this->import('
                                     <span>{{ registro.pessoa }} <small>#{{ registro.userId }}</small></span>
                                     <span v-if="registro.origem">{{ registro.origem }}</span>
                                     <span class="govbr-satisfaction__muted" v-else>{{ text('cadastroDaConta') }}</span>
-                                    <span>{{ fmt('registradaEm', quando(registro.registrada)) }}</span>
+                                    <span>{{ formatar('registradaEm', quando(registro.registrada)) }}</span>
                                 </p>
 
                                 <p class="govbr-request__detalhe" v-if="registro.detalhe" :title="registro.detalhe">
@@ -241,7 +241,7 @@ $this->import('
                                     <span>{{ text(registro.situacao) }}</span>
                                 </span>
 
-                                <small v-if="registro.disparada">{{ fmt('disparadaEm', quando(registro.disparada)) }}</small>
+                                <small v-if="registro.disparada">{{ formatar('disparadaEm', quando(registro.disparada)) }}</small>
                             </div>
 
                             <div class="govbr-request__acoes">
@@ -250,7 +250,7 @@ $this->import('
                                         <p v-if="aguardaRetentativa(registro)">{{ text('tentarAgoraConfirmacao') }}</p>
                                         <p v-else>{{ text(registro.situacao === 'sem-cpf' ? 'devolverConfirmacaoSemCpf' : 'devolverConfirmacao') }}</p>
                                         <p class="govbr-satisfaction__nota" v-if="registro.situacao === 'recusado'">
-                                            {{ fmt('tentativas', registro.tentativas) }}
+                                            {{ formatar('tentativas', registro.tentativas) }}
                                         </p>
                                     </template>
 
@@ -297,7 +297,7 @@ $this->import('
                                 :key="registro.id + '-' + (versoes[registro.id] || 0)"
                                 :request-id="registro.id"
                                 :revelacao="status.revelacao"
-                                :tick="tick">
+                                :leitura="leitura">
                             </govbr-satisfaction-dispatches>
                         </div>
                     </li>
@@ -305,7 +305,7 @@ $this->import('
 
                 <div class="govbr-satisfaction__more" v-if="pagina < paginas">
                     <span class="govbr-satisfaction__hint">
-                        {{ fmt('contagem', registros.length, total) }}
+                        {{ formatar('contagem', registros.length, total) }}
                     </span>
 
                     <button
