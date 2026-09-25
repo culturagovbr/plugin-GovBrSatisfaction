@@ -4,6 +4,7 @@ Consulta das solicitações de pesquisa de satisfação disparadas ao gov.br pel
 
 - Uma solicitação por card. A busca aceita nome do agente, id do usuário ou uuid de um envio (`busca` em `GET_index`).
 - As pílulas filtram por situação; os números delas ignoram os filtros aplicados: são o retrato do conjunto.
+- **Atualizar** relê as páginas carregadas. **Monitorar em tempo real** relê a cada 5 segundos, com a aba visível, e atualiza também os históricos abertos.
 - "Disparado" significa que o Mapa enviou, **não** que o cidadão recebeu o e-mail.
 - O card mostra o nome do agente ou, sem ele, o e-mail mascarado.
 - O botão de histórico abre, dentro do card, os envios e as tentativas da solicitação (`<govbr-satisfaction-dispatches>`).
