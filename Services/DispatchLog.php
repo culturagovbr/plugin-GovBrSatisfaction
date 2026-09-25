@@ -160,6 +160,21 @@ class DispatchLog
         )->execute(['before' => $before]);
     }
 
+    /** Encerra todos os envios pendentes da solicitação; devolve quantos. */
+    public function finishPending(SatisfactionRequest $request, string $state): int
+    {
+        return (int) App::i()->em->createQuery(
+            'UPDATE ' . SatisfactionDispatch::class . ' d
+                SET d.state = :state, d.finishTimestamp = :now
+              WHERE d.request = :request AND d.state = :pending'
+        )->execute([
+            'state' => $state,
+            'now' => new \DateTime(),
+            'request' => $request->id,
+            'pending' => SatisfactionDispatch::STATE_PENDING,
+        ]);
+    }
+
     /** Encerra o envio se ainda estiver pendente; devolve se encerrou. */
     public function finish(SatisfactionDispatch $dispatch, string $state): bool
     {

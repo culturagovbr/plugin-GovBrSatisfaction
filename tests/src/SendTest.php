@@ -474,4 +474,31 @@ class SendTest extends TestCase
         $this->assertSituacao('enviado', $this->solicitacoes()[0]);
         $this->assertSame([], $this->tentativas());
     }
+
+    /** "Tentar agora" no meio do envio não deixa envio pendente para sempre. */
+    function testTentarAgoraDuranteOEnvioNaoDeixaEnvioPendente()
+    {
+        $this->publicarEspaco();
+        $admin = $this->userDirector->createUser('saasSuperAdmin');
+        $plugin = $this->plugin();
+        $id = (int) $this->solicitacoes()[0]['id'];
+
+        $this->configurar(['client' => $this->clienteQueDecide(function () use ($plugin, $id, $admin) {
+            // o admin clica enquanto o POST está no ar
+            $solicitacao = App::i()->repo(\GovBrSatisfaction\Entities\SatisfactionRequest::class)->find($id);
+            $plugin->sender()->retryNow($solicitacao, $admin);
+
+            return new Result(Outcome::Sent, 200, 'protocolo X', '{}');
+        })]);
+
+        $this->processarEnvios();
+        $this->processarEnvios();
+
+        $this->assertSituacao('enviado', $this->solicitacoes()[0]);
+        $this->assertSame(
+            [],
+            array_column(array_filter($this->envios(), fn($envio) => $envio['state'] === 'pendente'), 'origin'),
+            'envio ficou pendente para sempre'
+        );
+    }
 }
