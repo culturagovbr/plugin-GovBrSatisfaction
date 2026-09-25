@@ -35,9 +35,9 @@ class PayloadReveal
     {
         $until = time() + self::WINDOW;
 
-        $_SESSION[self::SESSION_KEY] = ['user' => (int) $user->id, 'until' => $until, 'reason' => $reason, 'count' => 0];
-
         $this->audit($user, SatisfactionReveal::ACTION_UNLOCK, null, $reason);
+
+        $_SESSION[self::SESSION_KEY] = ['user' => (int) $user->id, 'until' => $until, 'reason' => $reason, 'count' => 0];
 
         return $until;
     }

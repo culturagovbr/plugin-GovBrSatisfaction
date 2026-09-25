@@ -198,6 +198,16 @@ class RevealEndpointTest extends TestCase
         $this->assertSame(['negado', 'negado'], array_column($this->auditoria(), 'action'));
     }
 
+    /** Fora da lista, a resposta não diz se a tentativa existe. */
+    function testForaDaListaNaoDistingueTentativaInexistente()
+    {
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+
+        [$status] = $this->post('reveal', ['tentativa' => 999999999]);
+
+        $this->assertSame(403, $status);
+    }
+
     function testUsuarioComumNaoChegaAoEndpoint()
     {
         $tentativa = $this->tentativaCifrada();
@@ -247,6 +257,12 @@ class RevealEndpointTest extends TestCase
         $this->assertSame(500, $status);
         $this->assertArrayNotHasKey('payload', $dados);
         $this->assertNotContains('revelar', array_column($this->auditoria(), 'action'));
+
+        $auditoria = $this->auditoria();
+        $this->assertSame(
+            ['negado', 'não foi possível abrir o conteúdo guardado', $tentativa],
+            [end($auditoria)['action'], end($auditoria)['reason'], (int) end($auditoria)['attempt_id']]
+        );
     }
 
     function testAcaoInvalidaDa400()

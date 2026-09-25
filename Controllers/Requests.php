@@ -293,17 +293,17 @@ class Requests extends \MapasCulturais\Controller
             return;
         }
 
-        $attempt = $app->repo(SatisfactionAttempt::class)->find((int) ($this->data['tentativa'] ?? 0));
-
-        if (!$attempt) {
-            $this->json(['error' => \MapasCulturais\i::__('Tentativa não encontrada.')], 404);
+        if (!$plugin->canReveal($app->user)) {
+            $reveal->deny($app->user, null, 'usuário fora de AVALIACAO_REVELAR_USUARIOS');
+            $this->json(['error' => \MapasCulturais\i::__('Seu usuário não pode revelar dados pessoais.')], 403);
 
             return;
         }
 
-        if (!$plugin->canReveal($app->user)) {
-            $reveal->deny($app->user, $attempt, 'usuário fora de AVALIACAO_REVELAR_USUARIOS');
-            $this->json(['error' => \MapasCulturais\i::__('Seu usuário não pode revelar dados pessoais.')], 403);
+        $attempt = $app->repo(SatisfactionAttempt::class)->find((int) ($this->data['tentativa'] ?? 0));
+
+        if (!$attempt) {
+            $this->json(['error' => \MapasCulturais\i::__('Tentativa não encontrada.')], 404);
 
             return;
         }
@@ -339,6 +339,7 @@ class Requests extends \MapasCulturais\Controller
             $payload = $reveal->reveal($app->user, $attempt, $action);
         } catch (\RuntimeException | \JsonException $e) {
             $app->log->error(sprintf('[GovBrSatisfaction] tentativa %d não abriu: %s', $attempt->id, $e->getMessage()));
+            $reveal->deny($app->user, $attempt, 'não foi possível abrir o conteúdo guardado');
             $this->json(['error' => \MapasCulturais\i::__('Não foi possível abrir o conteúdo guardado.')], 500);
 
             return;
