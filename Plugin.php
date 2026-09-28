@@ -60,7 +60,7 @@ class Plugin extends \MapasCulturais\Plugin
             'servicos' => $services,
 
             // credenciais RCV_BSC_*
-            'bscAuthUrl' => env('RCV_BSC_AUTH_TOKEN', ''),
+            'bscAuthUrl' => env('AVALIACAO_BSC_AUTH_TOKEN', ''),
             'bscClientId' => env('RCV_BSC_CLIENT_ID', ''),
             'bscClientSecret' => env('RCV_BSC_CLIENT_SECRET', ''),
 
@@ -287,7 +287,7 @@ class Plugin extends \MapasCulturais\Plugin
             $missing[] = 'AVALIACAO_SUBSITE_ID';
         }
 
-        foreach (['bscAuthUrl' => 'RCV_BSC_AUTH_TOKEN', 'bscClientId' => 'RCV_BSC_CLIENT_ID', 'bscClientSecret' => 'RCV_BSC_CLIENT_SECRET'] as $key => $variable) {
+        foreach (['bscAuthUrl' => 'AVALIACAO_BSC_AUTH_TOKEN', 'bscClientId' => 'RCV_BSC_CLIENT_ID', 'bscClientSecret' => 'RCV_BSC_CLIENT_SECRET'] as $key => $variable) {
             if (!$this->config[$key]) {
                 $missing[] = $variable;
             }

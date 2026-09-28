@@ -37,7 +37,7 @@ Obrigatórias:
 | `AVALIACAO_SERVICO_EVENTO` | ID do serviço "Cadastrar evento cultural" |
 | `AVALIACAO_SERVICO_ESPACO` | ID do serviço "Cadastrar espaço cultural" |
 | `AVALIACAO_SERVICO_PROJETO` | ID do serviço "Cadastrar projeto cultural" |
-| `RCV_BSC_AUTH_TOKEN`, `RCV_BSC_CLIENT_ID`, `RCV_BSC_CLIENT_SECRET` | Credenciais do gateway do BSC |
+| `AVALIACAO_BSC_AUTH_TOKEN`, `RCV_BSC_CLIENT_ID`, `RCV_BSC_CLIENT_SECRET` | Credenciais do gateway do BSC |
 
 Opcionais:
 
