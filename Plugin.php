@@ -81,9 +81,6 @@ class Plugin extends \MapasCulturais\Plugin
             // chaveiro do payload real cifrado: "1:base64,2:base64"; a maior versão cifra
             'payloadKeys' => env('AVALIACAO_CHAVES_PAYLOAD', ''),
 
-            // ids dos usuários que podem revelar o payload real: "12,34"
-            'revealUsers' => env('AVALIACAO_REVELAR_USUARIOS', ''),
-
             // dias até apagar o payload cifrado e a resposta das tentativas; 0 desliga
             'retentionDays' => (int) env('AVALIACAO_RETENCAO_DIAS', 180),
 
@@ -116,17 +113,10 @@ class Plugin extends \MapasCulturais\Plugin
         return Services\PayloadVault::fromConfig((string) $this->config['payloadKeys']);
     }
 
-    /** O usuário está na lista de quem pode revelar o payload real. */
+    /** O usuário pode revelar o payload real. */
     public function canReveal(?\MapasCulturais\Entities\User $user): bool
     {
-        if (!$user || $user->is('guest') || !$user->is(self::ADMIN_ROLE)) {
-            return false;
-        }
-
-        $allowed = $this->config['revealUsers'];
-        $allowed = is_array($allowed) ? $allowed : explode(',', (string) $allowed);
-
-        return in_array((int) $user->id, array_map('intval', $allowed), true);
+        return $user && !$user->is('guest') && $user->is(self::ADMIN_ROLE);
     }
 
     public function sender(): Services\SatisfactionSender

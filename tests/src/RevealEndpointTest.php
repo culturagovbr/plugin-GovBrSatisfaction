@@ -37,7 +37,6 @@ class RevealEndpointTest extends TestCase
 
         $this->configurar([
             'payloadKeys' => '1:' . base64_encode(random_bytes(32)),
-            'revealUsers' => [],
             'revealAudit' => $this->registro,
         ]);
     }
@@ -73,8 +72,6 @@ class RevealEndpointTest extends TestCase
     protected function autorizado(): User
     {
         $admin = $this->comSenha($this->userDirector->createUser('saasSuperAdmin'));
-        $lista = $this->plugin()->config['revealUsers'];
-        $this->configurar(['revealUsers' => [...(array) $lista, $admin->id]]);
         $this->login($admin);
 
         return $admin;
@@ -228,31 +225,6 @@ class RevealEndpointTest extends TestCase
         $this->assertSame(403, $status);
     }
 
-    function testForaDaListaNaoAbreJanelaNemRevela()
-    {
-        $tentativa = $this->tentativaCifrada();
-        $this->login($this->userDirector->createUser('saasSuperAdmin'));
-
-        [$status] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
-        $this->assertSame(403, $status);
-
-        [$status, $dados] = $this->post('reveal', ['tentativa' => $tentativa]);
-        $this->assertSame(403, $status);
-        $this->assertArrayNotHasKey('payload', $dados);
-
-        $this->assertSame(['negado', 'negado'], array_column($this->auditoria(), 'acao'));
-    }
-
-    /** Fora da lista, a resposta não diz se a tentativa existe. */
-    function testForaDaListaNaoDistingueTentativaInexistente()
-    {
-        $this->login($this->userDirector->createUser('saasSuperAdmin'));
-
-        [$status] = $this->post('reveal', ['tentativa' => 999999999]);
-
-        $this->assertSame(403, $status);
-    }
-
     function testUsuarioComumNaoChegaAoEndpoint()
     {
         $tentativa = $this->tentativaCifrada();
@@ -305,9 +277,7 @@ class RevealEndpointTest extends TestCase
 
     function testContaSemSenhaLocalNaoAbreJanela()
     {
-        $admin = $this->userDirector->createUser('saasSuperAdmin');
-        $this->configurar(['revealUsers' => [$admin->id]]);
-        $this->login($admin);
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
 
         [$status, $dados] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
 

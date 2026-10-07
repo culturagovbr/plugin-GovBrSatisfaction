@@ -251,13 +251,6 @@ class Requests extends \MapasCulturais\Controller
         $app = App::i();
         $reveal = new PayloadReveal($this->plugin());
 
-        if (!$this->plugin()->canReveal($app->user)) {
-            $reveal->deny($app->user, null, 'usuário fora de AVALIACAO_REVELAR_USUARIOS');
-            $this->json(['error' => \MapasCulturais\i::__('Seu usuário não pode revelar dados pessoais.')], 403);
-
-            return;
-        }
-
         $reason = trim((string) ($this->data['motivo'] ?? ''));
 
         if (mb_strlen($reason) < PayloadReveal::REASON_MIN) {
@@ -306,13 +299,6 @@ class Requests extends \MapasCulturais\Controller
 
         if (!in_array($action, [PayloadReveal::ACTION_REVEAL, PayloadReveal::ACTION_COPY], true)) {
             $this->json(['error' => \MapasCulturais\i::__('Ação inválida.')], 400);
-
-            return;
-        }
-
-        if (!$plugin->canReveal($app->user)) {
-            $reveal->deny($app->user, null, 'usuário fora de AVALIACAO_REVELAR_USUARIOS');
-            $this->json(['error' => \MapasCulturais\i::__('Seu usuário não pode revelar dados pessoais.')], 403);
 
             return;
         }

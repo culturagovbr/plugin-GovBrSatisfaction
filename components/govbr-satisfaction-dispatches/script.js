@@ -24,7 +24,7 @@ app.component('govbr-satisfaction-dispatches', {
             default: 0,
         },
 
-        // do GET_status: cofre configurado e usuário na lista
+        // do GET_status: cofre configurado e usuário saasSuperAdmin
         revelacao: {
             type: Object,
             default: () => ({ disponivel: false, autorizado: false, motivoMinimo: 10, segundos: 120 }),
