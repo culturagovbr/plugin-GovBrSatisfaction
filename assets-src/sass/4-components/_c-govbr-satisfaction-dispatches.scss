@@ -139,6 +139,8 @@
     &__codigo {
         position: relative;
         width: 100%;
+        min-width: 0;
+        max-width: 100%;
 
         & + & {
             margin-top: 0.5rem;
@@ -172,9 +174,11 @@
         }
     }
 
-    // log longo rola dentro do bloco, cerca de 20 linhas
+    // log longo rola dentro do bloco, cerca de 20 linhas; linha longa quebra
     &__json {
         width: 100%;
+        min-width: 0;
+        max-width: 100%;
         max-height: 24rem;
         margin: 0;
         overflow: auto;
@@ -185,7 +189,8 @@
         font-family: monospace;
         font-size: var(--mc-font-size-xxs);
         line-height: 1.5;
-        white-space: pre;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
     }
 
     &__nota {
