@@ -152,12 +152,12 @@ class HttpClient implements Client
             return new Result(Outcome::Sent, $status, $reason, $body);
         }
 
-        // 4xx: credencial, permissão, serviço inexistente, payload inválido.
-        if ($status >= 400 && $status < 500) {
+        // 4xx: credencial, permissão, serviço inexistente, payload inválido; 408 e 429 são transitórios.
+        if ($status >= 400 && $status < 500 && !in_array($status, [408, 429], true)) {
             return new Result(Outcome::Rejected, $status, $reason, $body);
         }
 
-        // 5xx, 3xx e 0 sem erro de curl: transitório.
+        // 5xx, 3xx, 408, 429 e 0 sem erro de curl: transitório.
         $detail = $reason ?? ($status ? "resposta inesperada HTTP {$status}" : 'sem resposta do BSC');
 
         return new Result(Outcome::Retry, $status ?: null, $detail, $body);

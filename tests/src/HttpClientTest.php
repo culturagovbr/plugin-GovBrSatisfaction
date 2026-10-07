@@ -74,6 +74,18 @@ class HttpClientTest extends TestCase
         $this->assertSame(Outcome::Rejected, HttpClient::interpret(404, '')->outcome);
     }
 
+    /** Tempo esgotado e limite de taxa voltam para a fila. */
+    function test408E429SaoTransitorios()
+    {
+        $r = HttpClient::interpret(429, '{"message":"Too many requests"}');
+
+        $this->assertSame(Outcome::Retry, $r->outcome);
+        $this->assertSame(429, $r->status);
+        $this->assertSame('Too many requests', $r->detail);
+
+        $this->assertSame(Outcome::Retry, HttpClient::interpret(408, '')->outcome);
+    }
+
     function testJaEnviadaEhEnvioMesmoCom500()
     {
         $r = HttpClient::interpret(500, '{"message":"Avaliação já enviada"}');
