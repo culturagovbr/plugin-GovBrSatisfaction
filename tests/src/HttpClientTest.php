@@ -86,6 +86,22 @@ class HttpClientTest extends TestCase
         $this->assertSame(Outcome::Retry, HttpClient::interpret(408, '')->outcome);
     }
 
+    /** Token sob outra chave não vai para o log. */
+    function testRespostaDeTokenSemAccessTokenLogaSoAsChaves()
+    {
+        $mensagem = HttpClient::tokenFailure(200, '{"access_token":"eyJ-token-vivo","expires_in":300}');
+
+        $this->assertStringNotContainsString('eyJ-token-vivo', $mensagem);
+        $this->assertStringContainsString('HTTP 200', $mensagem);
+        $this->assertStringContainsString('access_token, expires_in', $mensagem);
+    }
+
+    /** Resposta que não é JSON, como a de um proxy, mantém o texto. */
+    function testRespostaDeTokenEmTextoMantemOTexto()
+    {
+        $this->assertStringContainsString('no healthy upstream', HttpClient::tokenFailure(503, 'no healthy upstream'));
+    }
+
     function testJaEnviadaEhEnvioMesmoCom500()
     {
         $r = HttpClient::interpret(500, '{"message":"Avaliação já enviada"}');

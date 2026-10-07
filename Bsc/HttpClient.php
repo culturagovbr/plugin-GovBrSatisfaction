@@ -253,13 +253,21 @@ class HttpClient implements Client
         $token = is_array($response) ? ($response['accessToken'] ?? null) : null;
 
         if (!$token) {
-            App::i()->log->warning(sprintf(
-                '[GovBrSatisfaction] o endpoint de token respondeu HTTP %d sem accessToken: %s',
-                $status,
-                mb_substr(Mask::forLogText(trim($result)), 0, self::REASON_MAX)
-            ));
+            App::i()->log->warning('[GovBrSatisfaction] ' . self::tokenFailure($status, $result));
         }
 
         return $token ?: null;
+    }
+
+    /** Resumo da resposta de token sem accessToken; de JSON, só as chaves. */
+    public static function tokenFailure(int $status, string $body): string
+    {
+        $json = json_decode($body, true);
+
+        $summary = is_array($json)
+            ? 'chaves: ' . (implode(', ', array_map('strval', array_keys($json))) ?: 'nenhuma')
+            : Mask::forLogText(trim($body));
+
+        return sprintf('o endpoint de token respondeu HTTP %d sem accessToken (%s)', $status, mb_substr($summary, 0, self::REASON_MAX));
     }
 }
