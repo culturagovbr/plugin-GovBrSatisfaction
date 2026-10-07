@@ -15,8 +15,8 @@ $this->import('
 <div class="govbr-dispatches">
     <mc-loading :condition="carregando"></mc-loading>
 
-    <!-- motivo que abre a janela de revelação -->
-    <mc-modal ref="motivo" classes="govbr-dispatches__modal" :title="text('motivoTitulo')" @close="pendente = null">
+    <!-- motivo e senha que abrem a janela de revelação -->
+    <mc-modal ref="motivo" classes="govbr-dispatches__modal" :title="text('motivoTitulo')" @close="pendente = null; senha = ''">
         <template #default>
             <p class="govbr-dispatches__nota">{{ formatar('motivoExplicacao', janelaMinutos) }}</p>
             <div class="field">
@@ -35,6 +35,17 @@ $this->import('
                     {{ formatar('motivoContagem', motivo.trim().length, revelacao.motivoMinimo) }}
                 </small>
             </div>
+            <div class="field">
+                <label :for="'govbr-dispatches-senha-' + requestId">{{ text('senha') }}</label>
+                <input
+                    :id="'govbr-dispatches-senha-' + requestId"
+                    type="password"
+                    autocomplete="current-password"
+                    v-model="senha"
+                    :aria-describedby="'govbr-dispatches-senha-dica-' + requestId"
+                    @keydown.enter.prevent="podeLiberar && liberar($refs.motivo)">
+                <small :id="'govbr-dispatches-senha-dica-' + requestId" class="govbr-dispatches__dica">{{ text('senhaDica') }}</small>
+            </div>
         </template>
 
         <template #actions="modal">
@@ -42,7 +53,7 @@ $this->import('
             <button
                 type="button"
                 class="button button--primary button--md"
-                :disabled="liberando || !motivoCompleto"
+                :disabled="!podeLiberar"
                 @click="liberar(modal)">
                 {{ formatar('liberar', janelaMinutos) }}
             </button>

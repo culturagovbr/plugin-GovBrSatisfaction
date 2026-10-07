@@ -58,6 +58,7 @@ app.component('govbr-satisfaction-dispatches', {
             agora: Date.now(),
             pendente: null,
             motivo: '',
+            senha: '',
             liberando: false,
             revelando: null,
         };
@@ -76,6 +77,10 @@ app.component('govbr-satisfaction-dispatches', {
 
         motivoCompleto() {
             return this.motivo.trim().length >= this.revelacao.motivoMinimo;
+        },
+
+        podeLiberar() {
+            return !this.liberando && this.motivoCompleto && this.senha !== '';
         },
 
         janelaMinutos() {
@@ -243,21 +248,27 @@ app.component('govbr-satisfaction-dispatches', {
         pedirMotivo(tentativa, acao) {
             this.pendente = { tentativa, acao };
             this.motivo = '';
+            this.senha = '';
             this.$refs.motivo.open();
         },
 
+        // a senha sai da memória assim que é enviada
         async liberar(modal) {
+            const senha = this.senha;
+            this.senha = '';
             this.liberando = true;
 
             try {
-                const [response, data] = await this.postar('unlockReveal', { motivo: this.motivo.trim() });
+                const [response, data] = await this.postar('unlockReveal', { motivo: this.motivo.trim(), senha });
 
+                // erro: o modal continua aberto, com o motivo
                 if (!response.ok) {
                     this.messages.error(data.error || this.text('revelarErro'));
                     return;
                 }
 
                 this.abrirJanela(data.segundos, data.restantes);
+                this.motivo = '';
 
                 const pendente = this.pendente;
                 modal.close();
@@ -269,7 +280,6 @@ app.component('govbr-satisfaction-dispatches', {
                 this.messages.error(this.text('revelarErro'));
             } finally {
                 this.liberando = false;
-                this.motivo = '';
             }
         },
 

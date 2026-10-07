@@ -240,7 +240,7 @@
     }
 }
 
-/** Modal do motivo. */
+/** Modal do motivo e da senha. */
 .govbr-dispatches__modal {
     text-align: left;
 
@@ -249,11 +249,19 @@
         resize: vertical;
     }
 
+    input[type="password"] {
+        width: 100%;
+    }
+
     // botão desabilitado
     .button[disabled] {
         opacity: 0.5;
         cursor: not-allowed;
     }
+}
+
+.govbr-dispatches__dica {
+    font-size: var(--mc-font-size-xxs);
 }
 
 .govbr-dispatches__contagem {
