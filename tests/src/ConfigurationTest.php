@@ -53,7 +53,7 @@ class ConfigurationTest extends TestCase
     public static function credenciaisDoGateway(): array
     {
         return [
-            'url do token' => ['bscAuthUrl', 'RCV_BSC_AUTH_TOKEN'],
+            'url do token' => ['bscAuthUrl', 'AVALIACAO_BSC_AUTH_TOKEN'],
             'client id' => ['bscClientId', 'RCV_BSC_CLIENT_ID'],
             'client secret' => ['bscClientSecret', 'RCV_BSC_CLIENT_SECRET'],
         ];

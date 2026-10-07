@@ -7,7 +7,7 @@ services:
       # Só para a configuração nascer completa; o subsite real vem do TestCase
       # e nenhum teste chega ao envio real.
       - AVALIACAO_BSC_URL=http://bsc.invalido.teste/avaliacoes
-      - RCV_BSC_AUTH_TOKEN=http://bsc.invalido.teste/sca/oauth/token
+      - AVALIACAO_BSC_AUTH_TOKEN=http://bsc.invalido.teste/sca/oauth/token
       - RCV_BSC_CLIENT_ID=teste
       - RCV_BSC_CLIENT_SECRET=teste
       - AVALIACAO_ORGAO=36802
