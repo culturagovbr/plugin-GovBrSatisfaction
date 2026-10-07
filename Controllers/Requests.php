@@ -240,7 +240,7 @@ class Requests extends \MapasCulturais\Controller
     }
 
     /**
-     * Abre a janela de revelação do usuário, com o motivo.
+     * Abre a janela de revelação do usuário, com o motivo e a senha.
      *
      * @return void
      */
@@ -263,6 +263,22 @@ class Requests extends \MapasCulturais\Controller
 
         if (mb_strlen($reason) < PayloadReveal::REASON_MIN) {
             $this->json(['error' => sprintf(\MapasCulturais\i::__('Descreva o motivo com pelo menos %d caracteres.'), PayloadReveal::REASON_MIN)], 400);
+
+            return;
+        }
+
+        $check = PayloadReveal::checkPassword($app->user, (string) ($this->data['senha'] ?? ''));
+
+        if ($check !== PayloadReveal::PASSWORD_OK) {
+            $missing = $check === PayloadReveal::PASSWORD_MISSING;
+
+            $reveal->deny($app->user, null, $missing ? 'conta sem senha local' : 'senha incorreta');
+            $this->json([
+                'error' => $missing
+                    ? \MapasCulturais\i::__('Sua conta não tem senha cadastrada, por isso não é possível confirmar esta ação.')
+                    : \MapasCulturais\i::__('Senha incorreta.'),
+                'senha' => false,
+            ], 403);
 
             return;
         }

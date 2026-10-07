@@ -7,12 +7,14 @@ use MapasCulturais\App;
 use MapasCulturais\Entities\User;
 use Tests\Traits\RequestFactory;
 
-/** Revelar o payload real, com janela e auditoria. */
+/** Revelar o payload real, com senha, janela e auditoria. */
 class RevealEndpointTest extends TestCase
 {
     use RequestFactory;
 
     const MOTIVO = 'Cidadão contestou o envio no chamado 123';
+
+    const SENHA = 'senha-do-admin-123';
 
     protected function setUp(): void
     {
@@ -39,9 +41,21 @@ class RevealEndpointTest extends TestCase
         return (int) $this->ultimaTentativa()['id'];
     }
 
+    /** Grava a senha local do usuário. */
+    protected function comSenha(User $user): User
+    {
+        $app = App::i();
+        $app->disableAccessControl();
+        $user->setMetadata(PayloadReveal::PASSWORD_META, password_hash(self::SENHA, PASSWORD_DEFAULT));
+        $user->save(true);
+        $app->enableAccessControl();
+
+        return $user;
+    }
+
     protected function autorizado(): User
     {
-        $admin = $this->userDirector->createUser('saasSuperAdmin');
+        $admin = $this->comSenha($this->userDirector->createUser('saasSuperAdmin'));
         $lista = $this->plugin()->config['revealUsers'];
         $this->configurar(['revealUsers' => [...(array) $lista, $admin->id]]);
         $this->login($admin);
@@ -73,7 +87,7 @@ class RevealEndpointTest extends TestCase
         $tentativa = $this->tentativaCifrada();
         $admin = $this->autorizado();
 
-        [$status, $janela, $cache] = $this->post('unlockReveal', ['motivo' => self::MOTIVO]);
+        [$status, $janela, $cache] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
 
         $this->assertSame(200, $status);
         $this->assertSame('no-store', $cache);
@@ -101,7 +115,7 @@ class RevealEndpointTest extends TestCase
     {
         $tentativa = $this->tentativaCifrada();
         $this->autorizado();
-        $this->post('unlockReveal', ['motivo' => self::MOTIVO]);
+        $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
 
         [$status, $dados] = $this->post('reveal', ['tentativa' => $tentativa, 'acao' => 'copiar']);
 
@@ -116,7 +130,7 @@ class RevealEndpointTest extends TestCase
         $tentativa = $this->tentativaCifrada();
         $this->autorizado();
 
-        [, $janela] = $this->post('unlockReveal', ['motivo' => self::MOTIVO]);
+        [, $janela] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
         $this->assertSame(PayloadReveal::WINDOW_LIMIT, $janela['restantes']);
 
         for ($i = 1; $i <= PayloadReveal::WINDOW_LIMIT; $i++) {
@@ -136,7 +150,7 @@ class RevealEndpointTest extends TestCase
         $auditoria = $this->auditoria();
         $this->assertSame(['negado', 'limite da janela'], [end($auditoria)['action'], end($auditoria)['reason']]);
 
-        $this->post('unlockReveal', ['motivo' => 'Segundo chamado aberto pelo cidadão']);
+        $this->post('unlockReveal', ['motivo' => 'Segundo chamado aberto pelo cidadão', 'senha' => self::SENHA]);
         [$status] = $this->post('reveal', ['tentativa' => $tentativa]);
 
         $this->assertSame(200, $status);
@@ -161,7 +175,7 @@ class RevealEndpointTest extends TestCase
     {
         $tentativa = $this->tentativaCifrada();
         $this->autorizado();
-        $this->post('unlockReveal', ['motivo' => self::MOTIVO]);
+        $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
 
         $_SESSION[PayloadReveal::SESSION_KEY]['until'] = time() - 1;
 
@@ -176,7 +190,7 @@ class RevealEndpointTest extends TestCase
     {
         $tentativa = $this->tentativaCifrada();
         $this->autorizado();
-        $this->post('unlockReveal', ['motivo' => self::MOTIVO]);
+        $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
 
         $this->autorizado();
         [$status] = $this->post('reveal', ['tentativa' => $tentativa]);
@@ -189,7 +203,7 @@ class RevealEndpointTest extends TestCase
         $tentativa = $this->tentativaCifrada();
         $this->login($this->userDirector->createUser('saasSuperAdmin'));
 
-        [$status] = $this->post('unlockReveal', ['motivo' => self::MOTIVO]);
+        [$status] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
         $this->assertSame(403, $status);
 
         [$status, $dados] = $this->post('reveal', ['tentativa' => $tentativa]);
@@ -223,11 +237,68 @@ class RevealEndpointTest extends TestCase
     {
         $this->autorizado();
 
-        [$status, $dados] = $this->post('unlockReveal', ['motivo' => '  curto  ']);
+        [$status, $dados] = $this->post('unlockReveal', ['motivo' => '  curto  ', 'senha' => self::SENHA]);
 
         $this->assertSame(400, $status);
         $this->assertArrayHasKey('error', $dados);
         $this->assertNull($_SESSION[PayloadReveal::SESSION_KEY] ?? null);
+    }
+
+    function testSenhaErradaNaoAbreJanelaEAudita()
+    {
+        $tentativa = $this->tentativaCifrada();
+        $this->autorizado();
+
+        [$status, $dados] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => 'outra-senha']);
+
+        $this->assertSame(403, $status);
+        $this->assertSame('Senha incorreta.', $dados['error']);
+        $this->assertFalse($dados['senha']);
+        $this->assertNull($_SESSION[PayloadReveal::SESSION_KEY] ?? null);
+        $this->assertSame([['negado', 'senha incorreta']], array_map(fn($linha) => [$linha['action'], $linha['reason']], $this->auditoria()));
+
+        [$status] = $this->post('reveal', ['tentativa' => $tentativa]);
+
+        $this->assertSame(403, $status);
+    }
+
+    function testSenhaVaziaNaoAbreJanela()
+    {
+        $this->autorizado();
+
+        [$status, $dados] = $this->post('unlockReveal', ['motivo' => self::MOTIVO]);
+
+        $this->assertSame(403, $status);
+        $this->assertFalse($dados['senha']);
+        $this->assertNull($_SESSION[PayloadReveal::SESSION_KEY] ?? null);
+    }
+
+    function testContaSemSenhaLocalNaoAbreJanela()
+    {
+        $admin = $this->userDirector->createUser('saasSuperAdmin');
+        $this->configurar(['revealUsers' => [$admin->id]]);
+        $this->login($admin);
+
+        [$status, $dados] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
+
+        $this->assertSame(403, $status);
+        $this->assertStringContainsString('não tem senha cadastrada', $dados['error']);
+        $this->assertNull($_SESSION[PayloadReveal::SESSION_KEY] ?? null);
+        $this->assertSame('conta sem senha local', $this->auditoria()[0]['reason']);
+    }
+
+    /** A senha não vai para a auditoria. */
+    function testSenhaNaoFicaRegistrada()
+    {
+        $this->autorizado();
+
+        $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => 'outra-senha']);
+        $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
+
+        $auditoria = json_encode($this->auditoria());
+
+        $this->assertStringNotContainsString(self::SENHA, $auditoria);
+        $this->assertStringNotContainsString('outra-senha', $auditoria);
     }
 
     function testTentativaSemConteudoGuardadoDa404()
@@ -237,7 +308,7 @@ class RevealEndpointTest extends TestCase
         $this->configurar(['payloadKeys' => '1:' . base64_encode(random_bytes(32))]);
 
         $this->autorizado();
-        $this->post('unlockReveal', ['motivo' => self::MOTIVO]);
+        $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
 
         [$status] = $this->post('reveal', ['tentativa' => $tentativa]);
 
@@ -251,7 +322,7 @@ class RevealEndpointTest extends TestCase
         $this->configurar(['payloadKeys' => '1:' . base64_encode(random_bytes(32))]);
 
         $this->autorizado();
-        $this->post('unlockReveal', ['motivo' => self::MOTIVO]);
+        $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
 
         [$status, $dados] = $this->post('reveal', ['tentativa' => $tentativa]);
 

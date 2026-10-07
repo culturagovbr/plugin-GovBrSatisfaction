@@ -26,8 +26,30 @@ class PayloadReveal
 
     const SESSION_KEY = 'govbr-satisfaction.reveal';
 
+    /** Hash da senha do login local (MultipleLocalAuth). */
+    const PASSWORD_META = 'localAuthenticationPassword';
+
+    const PASSWORD_OK = 'ok';
+
+    const PASSWORD_WRONG = 'wrong';
+
+    /** Conta sem senha local. */
+    const PASSWORD_MISSING = 'missing';
+
     public function __construct(private readonly Plugin $plugin)
     {
+    }
+
+    /** Confere a senha local do usuário. */
+    public static function checkPassword(User $user, string $password): string
+    {
+        $hash = $user->getMetadata(self::PASSWORD_META);
+
+        if (!is_string($hash) || $hash === '') {
+            return self::PASSWORD_MISSING;
+        }
+
+        return $password !== '' && password_verify($password, $hash) ? self::PASSWORD_OK : self::PASSWORD_WRONG;
     }
 
     /** Abre a janela do usuário e devolve quando ela fecha. */
