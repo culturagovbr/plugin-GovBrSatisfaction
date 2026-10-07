@@ -156,29 +156,8 @@ return [
         __exec("ALTER TABLE govbr_satisfaction_attempt ADD COLUMN payload_sealed TEXT NULL");
     },
 
-    'create govbr_satisfaction_reveal table' => function () {
-        if (__table_exists('govbr_satisfaction_reveal')) {
-            return;
-        }
-
-        __exec("CREATE SEQUENCE govbr_satisfaction_reveal_id_seq INCREMENT BY 1 MINVALUE 1 START 1");
-
-        __exec("CREATE TABLE govbr_satisfaction_reveal (
-            id INT NOT NULL DEFAULT nextval('govbr_satisfaction_reveal_id_seq'),
-            request_id INT NULL,
-            attempt_id INT NULL,
-            user_id INT NOT NULL,
-            action VARCHAR(16) NOT NULL,
-            reason TEXT NULL,
-            ip VARCHAR(45) NULL,
-            user_agent VARCHAR(255) NULL,
-            create_timestamp TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL,
-            PRIMARY KEY(id)
-        )");
-
-        __exec("CREATE INDEX IDX_govbr_satisfaction_reveal__attempt
-            ON govbr_satisfaction_reveal (attempt_id)");
-        __exec("CREATE INDEX IDX_govbr_satisfaction_reveal__user_created
-            ON govbr_satisfaction_reveal (user_id, create_timestamp DESC)");
+    'drop govbr_satisfaction_reveal table' => function () {
+        __exec("DROP TABLE IF EXISTS govbr_satisfaction_reveal");
+        __exec("DROP SEQUENCE IF EXISTS govbr_satisfaction_reveal_id_seq");
     },
 ];

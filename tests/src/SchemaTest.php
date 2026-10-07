@@ -109,6 +109,12 @@ class SchemaTest extends TestCase
         ];
     }
 
+    /** A revelação é registrada no MapasBlame, sem tabela própria. */
+    function testSemTabelaPropriaDeRevelacao()
+    {
+        $this->assertSame([], $this->colunas('govbr_satisfaction_reveal'));
+    }
+
     function testUuidDoEnvioEhUnico()
     {
         $definicao = $this->conn()->fetchOne(
