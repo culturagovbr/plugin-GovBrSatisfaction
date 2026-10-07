@@ -3,11 +3,12 @@
 namespace Tests\GovBrSatisfaction;
 
 use GovBrSatisfaction\Services\PayloadReveal;
+use GovBrSatisfaction\Services\RevealAudit;
 use MapasCulturais\App;
 use MapasCulturais\Entities\User;
 use Tests\Traits\RequestFactory;
 
-/** Revelar o payload real, com senha, janela e auditoria. */
+/** Revelar o payload real, com senha, janela e registro. */
 class RevealEndpointTest extends TestCase
 {
     use RequestFactory;
@@ -16,13 +17,29 @@ class RevealEndpointTest extends TestCase
 
     const SENHA = 'senha-do-admin-123';
 
+    /** Registro em memória no lugar do MapasBlame. */
+    protected RevealAudit $registro;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         unset($_SESSION[PayloadReveal::SESSION_KEY]);
-        $this->conn()->executeStatement('DELETE FROM govbr_satisfaction_reveal');
-        $this->configurar(['payloadKeys' => '1:' . base64_encode(random_bytes(32)), 'revealUsers' => []]);
+
+        $this->registro = new class implements RevealAudit {
+            public array $entradas = [];
+
+            public function record(string $action, array $data): void
+            {
+                $this->entradas[] = ['acao' => $action] + $data;
+            }
+        };
+
+        $this->configurar([
+            'payloadKeys' => '1:' . base64_encode(random_bytes(32)),
+            'revealUsers' => [],
+            'revealAudit' => $this->registro,
+        ]);
     }
 
     protected function tearDown(): void
@@ -79,13 +96,21 @@ class RevealEndpointTest extends TestCase
 
     protected function auditoria(): array
     {
-        return $this->conn()->fetchAllAssociative('SELECT * FROM govbr_satisfaction_reveal ORDER BY id');
+        return $this->registro->entradas;
     }
 
-    function testRevelaDentroDaJanelaEAuditaComOMotivo()
+    /** Ação e razão de cada recusa registrada. */
+    protected function recusas(): array
+    {
+        $negados = array_filter($this->auditoria(), fn($linha) => $linha['acao'] === 'negado');
+
+        return array_values(array_map(fn($linha) => [$linha['acao'], $linha['razao']], $negados));
+    }
+
+    function testRevelaDentroDaJanelaERegistraComOMotivo()
     {
         $tentativa = $this->tentativaCifrada();
-        $admin = $this->autorizado();
+        $this->autorizado();
 
         [$status, $janela, $cache] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
 
@@ -102,13 +127,17 @@ class RevealEndpointTest extends TestCase
         $this->assertSame(self::CPF, $dados['payload']['cpfCidadao']);
         $this->assertSame($this->cidadao->email, $dados['payload']['email']);
 
-        [$liberar, $revelar] = $this->auditoria();
+        $this->assertSame(
+            [
+                ['acao' => 'liberar', 'motivo' => self::MOTIVO],
+                ['acao' => 'revelar', 'envio' => $this->envios()[0]['uuid'], 'tentativa' => 1, 'motivo' => self::MOTIVO],
+            ],
+            $this->auditoria()
+        );
 
-        $this->assertSame(['liberar', self::MOTIVO, null], [$liberar['action'], $liberar['reason'], $liberar['attempt_id']]);
-        $this->assertSame(['revelar', self::MOTIVO, $tentativa], [$revelar['action'], $revelar['reason'], (int) $revelar['attempt_id']]);
-        $this->assertSame((int) $this->solicitacoes()[0]['id'], (int) $revelar['request_id']);
-        $this->assertSame([$admin->id, $admin->id], array_map('intval', array_column($this->auditoria(), 'user_id')));
-        $this->assertStringNotContainsString(self::CPF, json_encode($this->auditoria()));
+        $registro = json_encode($this->auditoria());
+        $this->assertStringNotContainsString(self::CPF, $registro);
+        $this->assertStringNotContainsString($this->cidadao->email, $registro);
     }
 
     function testCopiarFicaRegistradoComoCopia()
@@ -121,7 +150,7 @@ class RevealEndpointTest extends TestCase
 
         $this->assertSame(200, $status, json_encode($dados));
         $auditoria = $this->auditoria();
-        $this->assertSame('copiar', end($auditoria)['action']);
+        $this->assertSame('copiar', end($auditoria)['acao']);
     }
 
     /** Acima do limite da janela, recusa e só volta com um novo motivo. */
@@ -147,8 +176,7 @@ class RevealEndpointTest extends TestCase
         $this->assertTrue($dados['limite']);
         $this->assertArrayNotHasKey('payload', $dados);
 
-        $auditoria = $this->auditoria();
-        $this->assertSame(['negado', 'limite da janela'], [end($auditoria)['action'], end($auditoria)['reason']]);
+        $this->assertSame([['negado', 'limite da janela']], $this->recusas());
 
         $this->post('unlockReveal', ['motivo' => 'Segundo chamado aberto pelo cidadão', 'senha' => self::SENHA]);
         [$status] = $this->post('reveal', ['tentativa' => $tentativa]);
@@ -156,7 +184,7 @@ class RevealEndpointTest extends TestCase
         $this->assertSame(200, $status);
     }
 
-    function testSemJanelaRecusaEAudita()
+    function testSemJanelaRecusaERegistra()
     {
         $tentativa = $this->tentativaCifrada();
         $this->autorizado();
@@ -167,8 +195,10 @@ class RevealEndpointTest extends TestCase
         $this->assertFalse($dados['janela']);
         $this->assertArrayNotHasKey('payload', $dados);
 
-        $negado = $this->auditoria()[0];
-        $this->assertSame(['negado', $tentativa], [$negado['action'], (int) $negado['attempt_id']]);
+        $this->assertSame(
+            [['acao' => 'negado', 'envio' => $this->envios()[0]['uuid'], 'tentativa' => 1, 'razao' => 'sem janela aberta']],
+            $this->auditoria()
+        );
     }
 
     function testJanelaVencidaFecha()
@@ -210,7 +240,7 @@ class RevealEndpointTest extends TestCase
         $this->assertSame(403, $status);
         $this->assertArrayNotHasKey('payload', $dados);
 
-        $this->assertSame(['negado', 'negado'], array_column($this->auditoria(), 'action'));
+        $this->assertSame(['negado', 'negado'], array_column($this->auditoria(), 'acao'));
     }
 
     /** Fora da lista, a resposta não diz se a tentativa existe. */
@@ -244,7 +274,7 @@ class RevealEndpointTest extends TestCase
         $this->assertNull($_SESSION[PayloadReveal::SESSION_KEY] ?? null);
     }
 
-    function testSenhaErradaNaoAbreJanelaEAudita()
+    function testSenhaErradaNaoAbreJanelaERegistra()
     {
         $tentativa = $this->tentativaCifrada();
         $this->autorizado();
@@ -255,7 +285,7 @@ class RevealEndpointTest extends TestCase
         $this->assertSame('Senha incorreta.', $dados['error']);
         $this->assertFalse($dados['senha']);
         $this->assertNull($_SESSION[PayloadReveal::SESSION_KEY] ?? null);
-        $this->assertSame([['negado', 'senha incorreta']], array_map(fn($linha) => [$linha['action'], $linha['reason']], $this->auditoria()));
+        $this->assertSame([['negado', 'senha incorreta']], $this->recusas());
 
         [$status] = $this->post('reveal', ['tentativa' => $tentativa]);
 
@@ -284,10 +314,10 @@ class RevealEndpointTest extends TestCase
         $this->assertSame(403, $status);
         $this->assertStringContainsString('não tem senha cadastrada', $dados['error']);
         $this->assertNull($_SESSION[PayloadReveal::SESSION_KEY] ?? null);
-        $this->assertSame('conta sem senha local', $this->auditoria()[0]['reason']);
+        $this->assertSame([['negado', 'conta sem senha local']], $this->recusas());
     }
 
-    /** A senha não vai para a auditoria. */
+    /** A senha não vai para o registro. */
     function testSenhaNaoFicaRegistrada()
     {
         $this->autorizado();
@@ -299,6 +329,45 @@ class RevealEndpointTest extends TestCase
 
         $this->assertStringNotContainsString(self::SENHA, $auditoria);
         $this->assertStringNotContainsString('outra-senha', $auditoria);
+    }
+
+    /** Falha no registro não impede a revelação. */
+    function testFalhaNoRegistroNaoDerrubaARevelacao()
+    {
+        $tentativa = $this->tentativaCifrada();
+        $this->autorizado();
+
+        $this->configurar(['revealAudit' => new class implements RevealAudit {
+            public function record(string $action, array $data): void
+            {
+                throw new \RuntimeException('banco do blame fora do ar');
+            }
+        }]);
+
+        [$status] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
+        $this->assertSame(200, $status);
+
+        [$status, $dados] = $this->post('reveal', ['tentativa' => $tentativa]);
+        $this->assertSame(200, $status);
+        $this->assertSame(self::CPF, $dados['payload']['cpfCidadao']);
+    }
+
+    /** Sem o MapasBlame ativo, o registro padrão não impede a revelação. */
+    function testSemMapasBlameARevelacaoFunciona()
+    {
+        $this->assertArrayNotHasKey('MapasBlame', App::i()->plugins);
+
+        $tentativa = $this->tentativaCifrada();
+        $this->autorizado();
+        $this->configurar(['revealAudit' => null]);
+
+        $this->assertInstanceOf(\GovBrSatisfaction\Services\BlameRevealAudit::class, $this->plugin()->revealAudit());
+
+        [$status] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
+        $this->assertSame(200, $status);
+
+        [$status] = $this->post('reveal', ['tentativa' => $tentativa]);
+        $this->assertSame(200, $status);
     }
 
     function testTentativaSemConteudoGuardadoDa404()
@@ -328,13 +397,8 @@ class RevealEndpointTest extends TestCase
 
         $this->assertSame(500, $status);
         $this->assertArrayNotHasKey('payload', $dados);
-        $this->assertNotContains('revelar', array_column($this->auditoria(), 'action'));
-
-        $auditoria = $this->auditoria();
-        $this->assertSame(
-            ['negado', 'não foi possível abrir o conteúdo guardado', $tentativa],
-            [end($auditoria)['action'], end($auditoria)['reason'], (int) end($auditoria)['attempt_id']]
-        );
+        $this->assertNotContains('revelar', array_column($this->auditoria(), 'acao'));
+        $this->assertSame([['negado', 'não foi possível abrir o conteúdo guardado']], $this->recusas());
     }
 
     function testAcaoInvalidaDa400()

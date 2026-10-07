@@ -50,6 +50,9 @@ class Plugin extends \MapasCulturais\Plugin
             // nulo: escolhe pelo ambiente
             'client' => null,
 
+            // nulo: MapasBlame
+            'revealAudit' => null,
+
             // ausente = TRUE
             'devMode' => self::boolEnv('AVALIACAO_DEV_MODE', true),
 
@@ -97,6 +100,14 @@ class Plugin extends \MapasCulturais\Plugin
     public function registry(): Services\SatisfactionRegistry
     {
         return $this->registry ??= new Services\SatisfactionRegistry($this);
+    }
+
+    /** Registro da revelação configurado, ou o MapasBlame. */
+    public function revealAudit(): Services\RevealAudit
+    {
+        $audit = $this->config['revealAudit'];
+
+        return $audit instanceof Services\RevealAudit ? $audit : new Services\BlameRevealAudit();
     }
 
     /** Cofre do payload real; nulo sem chave válida. */

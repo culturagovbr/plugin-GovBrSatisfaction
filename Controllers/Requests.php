@@ -7,7 +7,6 @@ use GovBrSatisfaction\Bsc\Payload;
 use GovBrSatisfaction\Entities\SatisfactionAttempt;
 use GovBrSatisfaction\Entities\SatisfactionDispatch;
 use GovBrSatisfaction\Entities\SatisfactionRequest;
-use GovBrSatisfaction\Entities\SatisfactionReveal;
 use GovBrSatisfaction\Services\DispatchLog;
 use GovBrSatisfaction\Services\PayloadReveal;
 use MapasCulturais\App;
@@ -303,9 +302,9 @@ class Requests extends \MapasCulturais\Controller
         $plugin = $this->plugin();
         $reveal = new PayloadReveal($plugin);
 
-        $action = $this->data['acao'] ?? SatisfactionReveal::ACTION_REVEAL;
+        $action = $this->data['acao'] ?? PayloadReveal::ACTION_REVEAL;
 
-        if (!in_array($action, [SatisfactionReveal::ACTION_REVEAL, SatisfactionReveal::ACTION_COPY], true)) {
+        if (!in_array($action, [PayloadReveal::ACTION_REVEAL, PayloadReveal::ACTION_COPY], true)) {
             $this->json(['error' => \MapasCulturais\i::__('Ação inválida.')], 400);
 
             return;

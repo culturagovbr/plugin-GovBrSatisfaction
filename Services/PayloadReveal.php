@@ -3,13 +3,12 @@
 namespace GovBrSatisfaction\Services;
 
 use GovBrSatisfaction\Entities\SatisfactionAttempt;
-use GovBrSatisfaction\Entities\SatisfactionReveal;
 use GovBrSatisfaction\Plugin;
 use MapasCulturais\App;
 use MapasCulturais\Entities\User;
 
 /**
- * Janela de revelação do payload real, com auditoria de cada pedido.
+ * Janela de revelação do payload real, com registro de cada pedido.
  *
  * @package GovBrSatisfaction
  */
@@ -25,6 +24,16 @@ class PayloadReveal
     const WINDOW_LIMIT = 10;
 
     const SESSION_KEY = 'govbr-satisfaction.reveal';
+
+    /** Janela aberta, com o motivo. */
+    const ACTION_UNLOCK = 'liberar';
+
+    const ACTION_REVEAL = 'revelar';
+
+    const ACTION_COPY = 'copiar';
+
+    /** Pedido recusado. */
+    const ACTION_DENIED = 'negado';
 
     /** Hash da senha do login local (MultipleLocalAuth). */
     const PASSWORD_META = 'localAuthenticationPassword';
@@ -57,7 +66,7 @@ class PayloadReveal
     {
         $until = time() + self::WINDOW;
 
-        $this->audit($user, SatisfactionReveal::ACTION_UNLOCK, null, $reason);
+        $this->audit($user, self::ACTION_UNLOCK, null, ['motivo' => $reason]);
 
         $_SESSION[self::SESSION_KEY] = ['user' => (int) $user->id, 'until' => $until, 'reason' => $reason, 'count' => 0];
 
@@ -102,7 +111,7 @@ class PayloadReveal
             PayloadVault::context($attempt->dispatch->uuid, (int) $attempt->number)
         );
 
-        $this->audit($user, $action, $attempt, $_SESSION[self::SESSION_KEY]['reason'] ?? null);
+        $this->audit($user, $action, $attempt, ['motivo' => $_SESSION[self::SESSION_KEY]['reason'] ?? null]);
 
         $_SESSION[self::SESSION_KEY]['count'] = (int) ($_SESSION[self::SESSION_KEY]['count'] ?? 0) + 1;
 
@@ -112,25 +121,23 @@ class PayloadReveal
     /** Registra o pedido recusado. */
     public function deny(User $user, ?SatisfactionAttempt $attempt, string $why): void
     {
-        $this->audit($user, SatisfactionReveal::ACTION_DENIED, $attempt, $why);
+        $this->audit($user, self::ACTION_DENIED, $attempt, ['razao' => $why]);
     }
 
-    private function audit(User $user, string $action, ?SatisfactionAttempt $attempt, ?string $reason): void
+    /** Registra o pedido; uma falha no registro não interrompe a revelação. */
+    private function audit(User $user, string $action, ?SatisfactionAttempt $attempt, array $data): void
     {
         $app = App::i();
-        $request = $app->request;
 
-        $entry = new SatisfactionReveal();
-        $entry->userId = (int) $user->id;
-        $entry->action = $action;
-        $entry->attemptId = $attempt ? (int) $attempt->id : null;
-        $entry->requestId = $attempt ? (int) $attempt->dispatch->request->id : null;
-        $entry->reason = $reason;
-        $entry->ip = $request ? SatisfactionRegistry::firstIp($request->getIp()) : null;
-        $entry->userAgent = mb_substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255) ?: null;
+        if ($attempt) {
+            $data = ['envio' => $attempt->dispatch->uuid, 'tentativa' => (int) $attempt->number] + $data;
+        }
 
-        $app->em->persist($entry);
-        $app->em->flush();
+        try {
+            $this->plugin->revealAudit()->record($action, $data);
+        } catch (\Throwable $e) {
+            $app->log->error("[GovBrSatisfaction] falha ao registrar a revelação: {$e->getMessage()}");
+        }
 
         $app->log->info(sprintf(
             '[GovBrSatisfaction] revelação: %s pelo usuário %d%s',
