@@ -168,6 +168,15 @@ class MaskTest extends TestCase
         );
     }
 
+    /** Nome com acento sai também em outra caixa. */
+    function testValorConhecidoComAcentoSaiEmOutraCaixa()
+    {
+        $this->assertSame(
+            'Cidadão *** já avaliou; ***',
+            Mask::forLogText('Cidadão JOÃO DA CONCEIÇÃO já avaliou; joão da conceição', ['João da Conceição'])
+        );
+    }
+
     function testValoresPessoaisIgnoramVaziosECamposComuns()
     {
         $this->assertSame(['Ana'], Mask::personalValues(['nomeCidadao' => 'Ana', 'email' => '  ', 'servico' => '13683']));

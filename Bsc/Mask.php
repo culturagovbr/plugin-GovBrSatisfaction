@@ -102,7 +102,7 @@ class Mask
 
         foreach ($values as $value) {
             if (mb_strlen($value) >= 4) {
-                $text = str_ireplace($value, '***', $text);
+                $text = preg_replace('/' . preg_quote($value, '/') . '/iu', '***', $text) ?? $text;
             }
         }
 
