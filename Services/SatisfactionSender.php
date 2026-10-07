@@ -42,12 +42,16 @@ class SatisfactionSender
 
         if ($reason) {
             $app->log->warning(sprintf(
-                '[GovBrSatisfaction] solicitação %d descartada: %s',
+                '[GovBrSatisfaction] solicitação %d recusada: %s',
                 $request->id,
                 $reason
             ));
 
-            $request->delete();
+            $request->sendStatus = SatisfactionRequest::STATUS_REJECTED;
+            $request->sendDetail = "portal não atendido: {$reason}";
+            $request->save(true);
+
+            $this->close($request);
 
             return SendOutcome::Done;
         }
