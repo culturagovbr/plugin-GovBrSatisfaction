@@ -44,7 +44,6 @@ Opcionais:
 | Variável | Descrição |
 | --- | --- |
 | `AVALIACAO_CHAVES_PAYLOAD` | Chaves do conteúdo cifrado, `versão:base64` separadas por vírgula; a maior versão cifra |
-| `AVALIACAO_REVELAR_USUARIOS` | IDs dos usuários que podem revelar o conteúdo real, separados por vírgula |
 | `AVALIACAO_RETENCAO_DIAS` | Dias até apagar o conteúdo cifrado e a resposta do BSC; padrão `180`, `0` desliga |
 
 Gerar uma chave:
@@ -57,7 +56,7 @@ php -r 'echo "1:".base64_encode(random_bytes(32)), PHP_EOL;'
 
 - Cada solicitação é enviada por um job próprio.
 - Cada envio registra suas tentativas, com HTTP, duração, endpoint, payload e resposta.
-- Após 3 falhas a solicitação fica `recusado`; um 4xx recusa na hora.
+- Após 3 falhas a solicitação fica `recusado`; um 4xx, exceto 408 e 429, recusa na hora.
 - Um job diário apaga o conteúdo cifrado e a resposta das tentativas mais antigas que o prazo de retenção.
 
 | Situação | Descrição |
@@ -79,8 +78,8 @@ Página **Satisfação gov.br**, em Administração, para `saasSuperAdmin`.
 
 - CPF, nome, e-mail e IP são gravados e exibidos mascarados.
 - Com `AVALIACAO_CHAVES_PAYLOAD`, o payload real de cada tentativa é guardado cifrado.
-- Os usuários de `AVALIACAO_REVELAR_USUARIOS` podem revelar ou copiar o payload real após informar um motivo, por tempo limitado.
-- Cada revelação é registrada.
+- `saasSuperAdmin` pode revelar ou copiar o payload real após informar um motivo e a senha da conta, por tempo limitado. Conta sem senha local não revela, e senhas erradas seguidas bloqueiam a liberação.
+- Cada liberação, revelação, cópia e recusa é registrada no MapasBlame, sem a senha nem o payload.
 
 ## Testes
 
