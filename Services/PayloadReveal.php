@@ -45,6 +45,14 @@ class PayloadReveal
     /** Conta sem senha local. */
     const PASSWORD_MISSING = 'missing';
 
+    /** Senhas erradas seguidas até bloquear. */
+    const PASSWORD_MAX_FAILS = 5;
+
+    /** Segundos de bloqueio após as senhas erradas. */
+    const PASSWORD_LOCK = 300;
+
+    const FAILS_KEY = 'govbr-satisfaction.reveal-fails';
+
     public function __construct(private readonly Plugin $plugin)
     {
     }
@@ -61,10 +69,43 @@ class PayloadReveal
         return $password !== '' && password_verify($password, $hash) ? self::PASSWORD_OK : self::PASSWORD_WRONG;
     }
 
+    /** Fim do bloqueio por senhas erradas, ou nulo. */
+    public function lockedUntil(User $user): ?int
+    {
+        $fails = $_SESSION[self::FAILS_KEY] ?? null;
+
+        if (!is_array($fails) || (int) ($fails['user'] ?? 0) !== (int) $user->id || (int) ($fails['until'] ?? 0) <= time()) {
+            return null;
+        }
+
+        return (int) $fails['until'];
+    }
+
+    /** Conta a senha errada; devolve o fim do bloqueio quando ele começa. */
+    public function failPassword(User $user): ?int
+    {
+        $fails = $_SESSION[self::FAILS_KEY] ?? null;
+        $count = is_array($fails) && (int) ($fails['user'] ?? 0) === (int) $user->id ? (int) ($fails['count'] ?? 0) : 0;
+        $count++;
+
+        if ($count < self::PASSWORD_MAX_FAILS) {
+            $_SESSION[self::FAILS_KEY] = ['user' => (int) $user->id, 'count' => $count, 'until' => 0];
+
+            return null;
+        }
+
+        $until = time() + self::PASSWORD_LOCK;
+        $_SESSION[self::FAILS_KEY] = ['user' => (int) $user->id, 'count' => 0, 'until' => $until];
+
+        return $until;
+    }
+
     /** Abre a janela do usuário e devolve quando ela fecha. */
     public function unlock(User $user, string $reason): int
     {
         $until = time() + self::WINDOW;
+
+        unset($_SESSION[self::FAILS_KEY]);
 
         $this->audit($user, self::ACTION_UNLOCK, null, ['motivo' => $reason]);
 

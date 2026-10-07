@@ -24,7 +24,7 @@ class RevealEndpointTest extends TestCase
     {
         parent::setUp();
 
-        unset($_SESSION[PayloadReveal::SESSION_KEY]);
+        unset($_SESSION[PayloadReveal::SESSION_KEY], $_SESSION[PayloadReveal::FAILS_KEY]);
 
         $this->registro = new class implements RevealAudit {
             public array $entradas = [];
@@ -43,7 +43,7 @@ class RevealEndpointTest extends TestCase
 
     protected function tearDown(): void
     {
-        unset($_SESSION[PayloadReveal::SESSION_KEY]);
+        unset($_SESSION[PayloadReveal::SESSION_KEY], $_SESSION[PayloadReveal::FAILS_KEY]);
 
         parent::tearDown();
     }
@@ -285,6 +285,93 @@ class RevealEndpointTest extends TestCase
         $this->assertStringContainsString('não tem senha cadastrada', $dados['error']);
         $this->assertNull($_SESSION[PayloadReveal::SESSION_KEY] ?? null);
         $this->assertSame([['negado', 'conta sem senha local']], $this->recusas());
+    }
+
+    /** Senhas erradas seguidas bloqueiam a liberação, mesmo com a senha certa. */
+    function testSenhasErradasBloqueiamALiberacao()
+    {
+        $tentativa = $this->tentativaCifrada();
+        $this->autorizado();
+
+        for ($i = 1; $i < PayloadReveal::PASSWORD_MAX_FAILS; $i++) {
+            [$status] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => "errada-{$i}"]);
+            $this->assertSame(403, $status);
+        }
+
+        [$status, $dados] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => 'errada-final']);
+
+        $this->assertSame(429, $status);
+        $this->assertStringContainsString('Muitas tentativas', $dados['error']);
+        $this->assertFalse($dados['senha']);
+
+        [$status] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
+
+        $this->assertSame(429, $status);
+        $this->assertNull($_SESSION[PayloadReveal::SESSION_KEY] ?? null);
+        $recusas = $this->recusas();
+        $this->assertSame(['negado', 'bloqueado por senhas erradas'], end($recusas));
+
+        [$status] = $this->post('reveal', ['tentativa' => $tentativa]);
+        $this->assertSame(403, $status);
+    }
+
+    /** Vencido o bloqueio, a senha certa volta a liberar. */
+    function testBloqueioVencidoLiberaComASenhaCerta()
+    {
+        $this->autorizado();
+
+        for ($i = 1; $i <= PayloadReveal::PASSWORD_MAX_FAILS; $i++) {
+            $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => "errada-{$i}"]);
+        }
+
+        $_SESSION[PayloadReveal::FAILS_KEY]['until'] = time() - 1;
+
+        [$status] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
+
+        $this->assertSame(200, $status);
+    }
+
+    /** A senha certa zera a contagem de erros. */
+    function testSenhaCertaZeraAContagem()
+    {
+        $this->autorizado();
+
+        for ($i = 1; $i < PayloadReveal::PASSWORD_MAX_FAILS; $i++) {
+            $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => "errada-{$i}"]);
+        }
+
+        [$status] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
+        $this->assertSame(200, $status);
+
+        [$status] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => 'errada-depois']);
+        $this->assertSame(403, $status);
+    }
+
+    /** O bloqueio é de quem errou a senha. */
+    function testBloqueioNaoPassaParaOutroUsuario()
+    {
+        $this->autorizado();
+
+        for ($i = 1; $i <= PayloadReveal::PASSWORD_MAX_FAILS; $i++) {
+            $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => "errada-{$i}"]);
+        }
+
+        $this->autorizado();
+
+        [$status] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
+
+        $this->assertSame(200, $status);
+    }
+
+    /** Conta sem senha local não acumula erros. */
+    function testContaSemSenhaNaoBloqueia()
+    {
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+
+        for ($i = 1; $i <= PayloadReveal::PASSWORD_MAX_FAILS + 1; $i++) {
+            [$status] = $this->post('unlockReveal', ['motivo' => self::MOTIVO, 'senha' => self::SENHA]);
+            $this->assertSame(403, $status);
+        }
     }
 
     /** A senha não vai para o registro. */

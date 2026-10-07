@@ -259,12 +259,30 @@ class Requests extends \MapasCulturais\Controller
             return;
         }
 
+        $locked = $reveal->lockedUntil($app->user);
+
+        if ($locked) {
+            $reveal->deny($app->user, null, 'bloqueado por senhas erradas');
+            $this->passwordLocked($locked);
+
+            return;
+        }
+
         $check = PayloadReveal::checkPassword($app->user, (string) ($this->data['senha'] ?? ''));
 
         if ($check !== PayloadReveal::PASSWORD_OK) {
             $missing = $check === PayloadReveal::PASSWORD_MISSING;
 
             $reveal->deny($app->user, null, $missing ? 'conta sem senha local' : 'senha incorreta');
+
+            $locked = $missing ? null : $reveal->failPassword($app->user);
+
+            if ($locked) {
+                $this->passwordLocked($locked);
+
+                return;
+            }
+
             $this->json([
                 'error' => $missing
                     ? \MapasCulturais\i::__('Sua conta não tem senha cadastrada, por isso não é possível confirmar esta ação.')
@@ -355,6 +373,18 @@ class Requests extends \MapasCulturais\Controller
             'segundos' => max(0, $until - time()),
             'restantes' => $reveal->remaining(),
         ]);
+    }
+
+    /** Recusa por excesso de senhas erradas. */
+    protected function passwordLocked(int $until): void
+    {
+        $this->json([
+            'error' => sprintf(
+                \MapasCulturais\i::__('Muitas tentativas com senha incorreta. Tente de novo em %d minuto(s).'),
+                max(1, (int) ceil(($until - time()) / 60))
+            ),
+            'senha' => false,
+        ], 429);
     }
 
     /** Resposta que não pode ficar em cache. */
