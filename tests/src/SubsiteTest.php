@@ -4,22 +4,14 @@ namespace Tests\GovBrSatisfaction;
 
 use Tests\Traits\SpaceDirector;
 
-/**
- * O portal atendido
- *
- * Um subsite só. Publicação em qualquer outro é descartada, não marcada: não é
- * caso a acompanhar, é linha que não deveria existir.
- *
- * A barreira aparece duas vezes: a do gatilho evita gravar, e a do envio existe
- * porque é ali que dado de cidadão sai da plataforma.
- */
+/** Um portal só. */
 class SubsiteTest extends TestCase
 {
     use SpaceDirector;
 
     function testPublicarNoPortalAtendidoRegistra()
     {
-        $this->publicar($this->spaceDirector->createSpace($this->cidadao->profile));
+        $this->publicarEspaco();
 
         $this->assertSame(1, $this->contar());
     }
@@ -28,7 +20,7 @@ class SubsiteTest extends TestCase
     {
         $this->noSubsite($this->outroSubsite);
 
-        $this->publicar($this->spaceDirector->createSpace($this->cidadao->profile));
+        $this->publicarEspaco();
 
         $this->assertSame(0, $this->contar());
     }
@@ -42,22 +34,19 @@ class SubsiteTest extends TestCase
         $this->assertSame(0, $this->contar());
     }
 
-    /**
-     * Sem a variável preenchida o plugin não sabe que portal atende, e a falha
-     * segura é não registrar — nunca registrar para todos.
-     */
     function testSemSubsiteConfiguradoNaoRegistra()
     {
         $this->configurar(['subsiteId' => 0]);
 
-        $this->publicar($this->spaceDirector->createSpace($this->cidadao->profile));
+        $this->publicarEspaco();
 
         $this->assertSame(0, $this->contar());
     }
 
-    function testEnvioApagaLinhaDeOutroPortal()
+    /** Linha de outro portal fica recusada com o motivo, sem envio. */
+    function testEnvioRecusaLinhaDeOutroPortal()
     {
-        $this->publicar($this->spaceDirector->createSpace($this->cidadao->profile));
+        $this->publicarEspaco();
 
         $this->conn()->executeStatement(
             'UPDATE govbr_satisfaction_request SET subsite_id = ?, send_status = ?',
@@ -66,6 +55,22 @@ class SubsiteTest extends TestCase
 
         $this->processarEnvios();
 
-        $this->assertSame(0, $this->contar(), 'a linha de outro portal deveria ter sido descartada');
+        $linha = $this->solicitacoes()[0];
+        $this->assertSituacao('recusado', $linha);
+        $this->assertStringContainsString("subsite {$this->outroSubsite->id} não habilitado", $linha['send_detail']);
+        $this->assertSame([], $this->tentativas());
+    }
+
+    /** Subsite zerado por engano não apaga as pendentes. */
+    function testSubsiteZeradoNaoApagaAsPendentes()
+    {
+        $this->publicarEspaco();
+        $this->configurar(['subsiteId' => 0]);
+
+        $this->processarEnvios();
+
+        $this->assertSame(1, $this->contar());
+        $this->assertSituacao('recusado', $this->solicitacoes()[0]);
+        $this->assertStringContainsString('AVALIACAO_SUBSITE_ID não configurado', $this->solicitacoes()[0]['send_detail']);
     }
 }

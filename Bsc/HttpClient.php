@@ -5,153 +5,190 @@ namespace GovBrSatisfaction\Bsc;
 use MapasCulturais\App;
 
 /**
- * Transporte real: POST /api/avaliacao/completa no BSC.
- *
- * Autentica como a consulta de CNPJ já faz — GET no endpoint de token com
- * `clientId`/`clientSecret` em cabeçalho, Bearer na chamada —, por isso reusa
- * as credenciais `RCV_BSC_*`.
- *
- * O corpo da resposta não é lido, por definição da API. O log registra só o que
- * este cliente não conseguiu fazer, para que falha de infraestrutura apareça.
+ * Transporte real: token no gateway e POST /api/avaliacao/completa.
  *
  * @package GovBrSatisfaction
  */
 class HttpClient implements Client
 {
-    private string $baseUrl;
-    private string $authUrl;
-    private string $clientId;
-    private string $clientSecret;
+    /** Segundos, total, para o token e para o POST. */
+    const TIMEOUT = 30;
 
-    public function __construct(string $baseUrl, string $authUrl, string $clientId, string $clientSecret)
-    {
+    /** Segundos para abrir a conexão. */
+    const CONNECT_TIMEOUT = 10;
+
+    /** Corte do texto da resposta no log. */
+    const REASON_MAX = 200;
+
+    private readonly string $baseUrl;
+
+    /** Token da instância; 401 com token reutilizado renova uma vez. */
+    private ?string $token = null;
+
+    /** Cliente com URL, credenciais e timeouts. */
+    public function __construct(
+        string $baseUrl,
+        private readonly string $authUrl,
+        private readonly string $clientId,
+        private readonly string $clientSecret,
+        private readonly int $timeout = self::TIMEOUT,
+        private readonly int $connectTimeout = self::CONNECT_TIMEOUT,
+    ) {
         $this->baseUrl = rtrim($baseUrl, '/');
-        $this->authUrl = $authUrl;
-        $this->clientId = $clientId;
-        $this->clientSecret = $clientSecret;
     }
 
     public function send(array $payload): Result
     {
         $app = App::i();
 
-        $token = $this->token();
+        $reused = $this->token !== null;
+
+        if (!$reused) {
+            $this->token = $this->token() ?: null;
+        }
+
+        $token = $this->token;
 
         if (!$token) {
-            // Nada foi despachado, e isso é certo: o `false` devolve a linha para
-            // pendente, e a próxima varredura tenta de novo. Credencial errada
-            // não pode marcar como convidado quem não foi.
             $app->log->error('[GovBrSatisfaction] envio abortado: não foi possível obter token do BSC');
 
-            return new Result(Result::RETRY, null, 'não foi possível obter token do BSC');
+            return new Result(Outcome::Retry, null, 'não foi possível obter token do BSC');
         }
+
+        $result = $this->post($payload, $token);
+
+        // Token reutilizado expirado: renova e refaz o POST.
+        if ($result->status === 401 && $reused) {
+            $this->token = $this->token() ?: null;
+
+            $result = $this->token
+                ? $this->post($payload, $this->token)
+                : new Result(Outcome::Retry, null, 'não foi possível renovar o token do BSC');
+        }
+
+        $this->log($result, Mask::personalValues($payload));
+
+        return $result;
+    }
+
+    private function post(array $payload, string $token): Result
+    {
+        $url = "{$this->baseUrl}/api/avaliacao/completa";
+        $headers = [];
+        $sentAt = new \DateTime();
 
         $ch = curl_init();
 
         curl_setopt_array($ch, [
-            CURLOPT_URL => "{$this->baseUrl}/api/avaliacao/completa",
+            CURLOPT_URL => $url,
             CURLOPT_POST => true,
+            CURLOPT_HEADERFUNCTION => function ($ch, string $raw) use (&$headers) {
+                $line = trim($raw);
+
+                // Guarda só o último bloco de cabeçalhos.
+                if (str_starts_with($line, 'HTTP/')) {
+                    $headers = [];
+                }
+
+                if ($line !== '') {
+                    $headers[] = $line;
+                }
+
+                return strlen($raw);
+            },
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 15,
+            CURLOPT_CONNECTTIMEOUT => $this->connectTimeout,
+            CURLOPT_TIMEOUT => $this->timeout,
             CURLOPT_HTTPHEADER => [
                 "Authorization: Bearer {$token}",
                 'Content-Type: application/json',
             ],
-            CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
+            CURLOPT_POSTFIELDS => Payload::encode($payload),
         ]);
 
-        $body = $this->limpar((string) curl_exec($ch));
+        $body = (string) curl_exec($ch);
+        $errno = curl_errno($ch);
         $error = curl_error($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $duration = (int) round(curl_getinfo($ch, CURLINFO_TOTAL_TIME) * 1000);
         curl_close($ch);
 
-        // `true` mesmo com erro de rede: aqui a requisição já saiu, e a falha pode
-        // ter acontecido depois de o BSC recebê-la. É o caso ambíguo, em que se
-        // escolhe deixar de convidar em vez de convidar duas vezes.
-        if ($error) {
-            $app->log->error("[GovBrSatisfaction] falha de rede no envio ao BSC: {$error}");
-
-            return new Result(Result::SENT, null, "falha de rede após o despacho: {$error}");
-        }
-
-        if ($status < 400) {
-            // `emailEnviado` é, pelo contrato, o "indicador de e-mail enviado
-            // pelo BSC". Falso é o BSC dizendo que não enviou, e a situação da
-            // linha existe justamente para responder quem foi convidado — tratar
-            // isso como envio seria afirmar o contrário do que a resposta diz.
-            //
-            // Recusado, e não pendente: a avaliação já foi criada do lado deles,
-            // então repetir devolve "já enviada" e nada muda. É caso para
-            // alguém olhar no painel.
-            $json = json_decode($body, true);
-
-            if (is_array($json) && array_key_exists('emailEnviado', $json) && $json['emailEnviado'] === false) {
-                $app->log->error(sprintf(
-                    '[GovBrSatisfaction] o BSC aceitou com HTTP %d mas informou que o e-mail não foi enviado',
-                    $status
-                ));
-
-                return new Result(Result::REJECTED, $status, 'o BSC informou que o e-mail não foi enviado', $body);
-            }
-
-            // O protocolo é o identificador do registro do lado deles, e é o que
-            // permite rastrear um caso junto ao BSC sem depender do nosso log.
-            $protocolo = is_array($json) ? ($json['protocolo'] ?? null) : null;
-
-            return new Result(Result::SENT, $status, $protocolo ? "protocolo {$protocolo}" : null, $body);
-        }
-
-        $motivo = $this->motivo($body);
-
-        $app->log->error(sprintf(
-            '[GovBrSatisfaction] o BSC recusou o envio com HTTP %d%s',
-            $status,
-            $motivo ? ": {$motivo}" : ''
-        ));
-
-        // O BSC devolve 500 tanto para falha de infraestrutura quanto para regra
-        // de negócio: "Avaliação já enviada" chega como 500. O código sozinho,
-        // portanto, não diz se repetir adianta — daí a leitura do motivo, que é
-        // para decidir o desfecho e não para guardar o retorno.
-        //
-        // Já enviada é o estado desejado alcançado: o cidadão foi convidado, seja
-        // por uma tentativa anterior cujo erro veio da auditoria depois da
-        // gravação, seja por outro caminho. Retentar seria laço infinito.
-        if ($motivo && mb_stripos($motivo, 'já enviada') !== false) {
-            return new Result(Result::SENT, $status, $motivo, $body);
-        }
-
-        // 4xx é recusa definitiva — credencial (401), permissão (403), serviço ou
-        // órgão inexistente (404), payload inválido (400). Repetir não muda
-        // nenhum deles, e marcar como enviado diria que o cidadão foi convidado
-        // quando ninguém foi: é recusa, e o painel precisa mostrar isso.
-        if ($status < 500) {
-            return new Result(Result::REJECTED, $status, $motivo, $body);
-        }
-
-        // 5xx restante é falha do servidor deles, transitória por natureza.
-        return new Result(Result::RETRY, $status, $motivo, $body);
+        return self::interpret($status, $body, $errno, $error)
+            ->withExchange(new Exchange('POST', $url, $sentAt, $duration, $headers ?: null));
     }
 
     /**
-     * Motivo da recusa, como o BSC o descreve.
+     * Decide o desfecho a partir do que o curl devolveu.
      *
-     * O corpo só é lido quando a resposta é de erro, e apenas para o log e para
-     * a decisão de retentar. Nada dele é guardado.
+     * @param int    $status    Código HTTP; 0 quando a resposta não veio
+     * @param string $body      Corpo cru
+     * @param int    $errno     `curl_errno()`; 0 sem erro de rede
+     * @param string $curlError `curl_error()`, para o resumo
      */
-    /**
-     * Tira do corpo o que não serve para diagnosticar.
-     *
-     * A resposta de erro do BSC vem com a pilha de exceção do Java inteira —
-     * dezenas de quadros com `classLoaderName`, `moduleVersion` e `nativeMethod`
-     * —, dezenas de milhares de caracteres por solicitação. O que diagnostica
-     * são `detail`, `subErrors` e `codigoErro`, que ficam soterrados.
-     *
-     * Limpar aqui, e não só na exibição, evita carregar esse peso no banco a
-     * cada recusa. Corpo que não é JSON passa intacto: quando o proxy responde
-     * "no healthy upstream", o texto já é a informação.
-     */
-    private function limpar(string $body): string
+    public static function interpret(int $status, string $body, int $errno = 0, string $curlError = ''): Result
+    {
+        // Erro de rede: retentar.
+        if ($errno !== 0) {
+            return new Result(Outcome::Retry, null, "falha de rede: {$curlError}");
+        }
+
+        $body = self::strip($body);
+
+        // 2xx: enviado; emailEnviado=false vai para o detalhe.
+        if ($status >= 200 && $status < 300) {
+            $json = json_decode($body, true);
+            $protocol = is_array($json) ? ($json['protocolo'] ?? null) : null;
+            $emailPending = is_array($json) && array_key_exists('emailEnviado', $json) && $json['emailEnviado'] === false;
+
+            $detail = trim(($protocol ? "protocolo {$protocol}" : '') . ($emailPending ? ' (e-mail pendente no BSC)' : ''));
+
+            return new Result(Outcome::Sent, $status, $detail !== '' ? $detail : null, $body);
+        }
+
+        $reason = self::reason($body);
+
+        // "Já enviada": enviado.
+        if ($reason && mb_stripos($reason, 'já enviada') !== false) {
+            return new Result(Outcome::Sent, $status, $reason, $body);
+        }
+
+        // 4xx: credencial, permissão, serviço inexistente, payload inválido; 408 e 429 são transitórios.
+        if ($status >= 400 && $status < 500 && !in_array($status, [408, 429], true)) {
+            return new Result(Outcome::Rejected, $status, $reason, $body);
+        }
+
+        // 5xx, 3xx, 408, 429 e 0 sem erro de curl: transitório.
+        $detail = $reason ?? ($status ? "resposta inesperada HTTP {$status}" : 'sem resposta do BSC');
+
+        return new Result(Outcome::Retry, $status ?: null, $detail, $body);
+    }
+
+    /** Loga o resultado, mascarando os valores conhecidos; envio limpo não loga. */
+    private function log(Result $result, array $known): void
+    {
+        $clean = $result->outcome === Outcome::Sent
+            && $result->status !== null && $result->status < 300;
+
+        if ($clean) {
+            return;
+        }
+
+        $message = sprintf(
+            '[GovBrSatisfaction] envio ao BSC: %s, HTTP %s%s',
+            $result->outcome->value,
+            $result->status ?? '-',
+            $result->detail ? ": " . mb_substr(Mask::forLogText($result->detail, $known), 0, self::REASON_MAX) : ''
+        );
+
+        if ($result->outcome === Outcome::Sent) {
+            App::i()->log->warning($message);
+        } else {
+            App::i()->log->error($message);
+        }
+    }
+
+    /** Remove a pilha de exceção do corpo; JSON que não é objeto passa intacto. */
+    private static function strip(string $body): string
     {
         $json = json_decode($body, true);
 
@@ -159,37 +196,32 @@ class HttpClient implements Client
             return $body;
         }
 
-        foreach (['stackTrace', 'suppressed', 'cause', 'localizedMessage', 'instance', 'type'] as $chave) {
-            unset($json[$chave]);
+        foreach (['stackTrace', 'suppressed', 'cause', 'localizedMessage', 'instance', 'type'] as $key) {
+            unset($json[$key]);
         }
 
         return json_encode($json, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: $body;
     }
 
-    private function motivo(string $body): ?string
+    private static function reason(string $body): ?string
     {
         $json = json_decode($body, true);
 
         if (is_array($json)) {
-            foreach (['detail', 'message', 'title'] as $chave) {
-                if (isset($json[$chave]) && is_string($json[$chave]) && $json[$chave] !== '') {
-                    return mb_substr($json[$chave], 0, 200);
+            foreach (['detail', 'message', 'title'] as $key) {
+                if (isset($json[$key]) && is_string($json[$key]) && $json[$key] !== '') {
+                    return $json[$key];
                 }
             }
 
             return null;
         }
 
-        // O proxy responde em texto puro quando não há instância de pé
-        // ("no healthy upstream"), e nesse caso o corpo já é a mensagem.
         $body = trim($body);
 
-        return $body === '' ? null : mb_substr($body, 0, 200);
+        return $body === '' ? null : $body;
     }
 
-    /**
-     * @return string|null Token de acesso, ou null quando o BSC não respondeu
-     */
     private function token(): ?string
     {
         $ch = curl_init();
@@ -197,7 +229,8 @@ class HttpClient implements Client
         curl_setopt_array($ch, [
             CURLOPT_URL => $this->authUrl,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 15,
+            CURLOPT_CONNECTTIMEOUT => $this->connectTimeout,
+            CURLOPT_TIMEOUT => $this->timeout,
             CURLOPT_CUSTOMREQUEST => 'GET',
             CURLOPT_HTTPHEADER => [
                 'Content-type: application/json',
@@ -206,8 +239,9 @@ class HttpClient implements Client
             ],
         ]);
 
-        $result = curl_exec($ch);
+        $result = (string) curl_exec($ch);
         $error = curl_error($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         curl_close($ch);
 
         if ($error) {
@@ -216,7 +250,24 @@ class HttpClient implements Client
         }
 
         $response = json_decode($result, true);
+        $token = is_array($response) ? ($response['accessToken'] ?? null) : null;
 
-        return $response['accessToken'] ?? null;
+        if (!$token) {
+            App::i()->log->warning('[GovBrSatisfaction] ' . self::tokenFailure($status, $result));
+        }
+
+        return $token ?: null;
+    }
+
+    /** Resumo da resposta de token sem accessToken; de JSON, só as chaves. */
+    public static function tokenFailure(int $status, string $body): string
+    {
+        $json = json_decode($body, true);
+
+        $summary = is_array($json)
+            ? 'chaves: ' . (implode(', ', array_map('strval', array_keys($json))) ?: 'nenhuma')
+            : Mask::forLogText(trim($body));
+
+        return sprintf('o endpoint de token respondeu HTTP %d sem accessToken (%s)', $status, mb_substr($summary, 0, self::REASON_MAX));
     }
 }

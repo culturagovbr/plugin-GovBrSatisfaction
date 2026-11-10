@@ -1,6 +1,6 @@
 {
   "name": "GovBrSatisfaction",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Avaliação de satisfação dos serviços do Mapa da Cultura no gov.br",
   "scripts": {
     "dev": "mix --mix-config=node_modules/@mapas/scripts/webpack.mix.js",

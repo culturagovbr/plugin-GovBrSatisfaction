@@ -1,13 +1,6 @@
-# Banco de testes com o geocodificador tiger.
-#
-# O dump do repositório principal faz `CREATE EXTENSION postgis_tiger_geocoder`,
-# mas a imagem `postgis/postgis:16-master` que ele usa não traz essa extensão:
-# o arquivo de controle não existe, o psql aborta, o container do banco morre no
-# boot e a suíte fica pendurada esperando uma conexão que nunca vem.
-#
-# A extensão vem num pacote à parte do PostgreSQL, e instalá-la é tudo o que
-# falta. Fazer isso aqui mantém o repositório principal intocado — a alternativa
-# seria editar o dump do core, que não é deste plugin.
+# O dump do core faz `CREATE EXTENSION postgis_tiger_geocoder`; a imagem que
+# ele declara não traz a extensão e o banco morre no boot. Instalar o pacote
+# aqui evita editar o dump.
 FROM postgis/postgis:16-master
 
 RUN apt-get update \

@@ -2,150 +2,285 @@
 
 namespace GovBrSatisfaction\Services;
 
+use GovBrSatisfaction\Bsc\Mask;
+use GovBrSatisfaction\Bsc\Client;
+use GovBrSatisfaction\Bsc\Outcome;
 use GovBrSatisfaction\Bsc\Result;
 use GovBrSatisfaction\Bsc\Payload;
+use GovBrSatisfaction\Entities\SatisfactionAttempt;
+use GovBrSatisfaction\Entities\SatisfactionDispatch;
 use GovBrSatisfaction\Entities\SatisfactionRequest;
+use GovBrSatisfaction\Jobs\SendSatisfactionRequestJob;
 use GovBrSatisfaction\Plugin;
 use MapasCulturais\App;
+use MapasCulturais\Entities\User;
 
 /**
- * Envio de uma solicitação ao BSC
- *
- * Contraparte do SatisfactionRegistry: ele decide o que vira linha, esta
- * decide o que da linha vira requisição ao gov.br — e o que acontece depois.
- *
- * Uma solicitação por vez: lote, ordem e erro são do job, e separá-los permite
- * exercitar o envio sem passar pela fila.
+ * Envio de uma solicitação ao BSC. Reagendamento é do job.
  *
  * @package GovBrSatisfaction
  */
 class SatisfactionSender
 {
-    /**
-     * Quantas tentativas antes de desistir.
-     *
-     * O BSC devolve 500 para indisponibilidade e para regra de negócio, e o que
-     * separa os dois é o texto da mensagem — frágil por natureza. Sem um teto,
-     * uma recusa permanente que não soubéssemos reconhecer retentaria a cada
-     * tique do cron, para sempre.
-     *
-     * Três porque o caso conhecido converge em duas: quando a auditoria do BSC
-     * falha depois de gravar a avaliação, a primeira tentativa devolve 500 e a
-     * segunda "já enviada". A terceira é a margem.
-     *
-     * A contrapartida é assumida: uma indisponibilidade longa esgota o limite e
-     * as linhas viram `recusado`, exigindo que alguém as devolva à fila. É o
-     * preço de não deixar a varredura girando sobre um caso que não se resolve.
-     */
+    /** Falhas antes de recusar. */
     const MAX_ATTEMPTS = 3;
 
-    private Plugin $plugin;
+    private readonly DispatchLog $log;
 
-    public function __construct(Plugin $plugin)
+    public function __construct(private readonly Plugin $plugin, ?DispatchLog $log = null)
     {
-        $this->plugin = $plugin;
+        $this->log = $log ?? new DispatchLog();
     }
 
-    /**
-     * Resolve uma solicitação pendente: descarta, marca sem CPF, ou envia.
-     *
-     * @return bool Falso quando a linha voltou para a fila sem ter saído
-     */
-    public function send(SatisfactionRequest $request): bool
+    /** Resolve uma pendente: descarta, marca sem CPF ou envia. */
+    public function send(SatisfactionRequest $request, Client $client): SendOutcome
     {
         $app = App::i();
 
-        // Segunda barreira, redundante com a do gatilho: é aqui que dado de
-        // cidadão sai da plataforma, e linha vinda por outro caminho — carga
-        // manual, migração, gatilho futuro com defeito — não pode virar envio
-        // só por estar na tabela. Descartada, não marcada: não é caso a
-        // acompanhar no painel.
+        // Revalida o portal.
         $reason = $this->plugin->subsiteRejectionReason($request->subsite);
 
         if ($reason) {
             $app->log->warning(sprintf(
-                '[GovBrSatisfaction] solicitação %d descartada: %s',
+                '[GovBrSatisfaction] solicitação %d recusada: %s',
                 $request->id,
                 $reason
             ));
 
-            $request->delete();
+            $request->sendStatus = SatisfactionRequest::STATUS_REJECTED;
+            $request->sendDetail = "portal não atendido: {$reason}";
+            $request->save(true);
 
-            return true;
+            $this->close($request);
+
+            return SendOutcome::Done;
         }
+
+        $dispatch = $this->log->guard(fn() => $this->log->pending($request)
+            ?? $this->log->start($request, SatisfactionDispatch::ORIGIN_REGISTRATION));
 
         $cpf = Payload::cpf($request->user, $this->plugin->config['metadataFieldCPF']);
 
         if (!$cpf) {
-            // Sem modal no fluxo, não existe momento para pedir que a pessoa
-            // complete o cadastro. O registro fica visível no painel para que o
-            // tamanho real do caso seja medido.
             $request->sendStatus = SatisfactionRequest::STATUS_NO_CPF;
-            $request->save();
+            $request->save(true);
 
-            return true;
+            $this->close($request);
+
+            return SendOutcome::Done;
         }
 
         $payload = Payload::build($request, $cpf);
+        $known = Mask::personalValues($payload);
+        $number = (int) $request->sendAttempts + 1;
+        $startedAt = new \DateTime();
 
-        // Gravado antes da chamada, e não depois: é o registro do que saiu, e
-        // vale mesmo que o envio falhe — uma recusa por payload inválido só é
-        // diagnosticável com o payload que a causou.
-        $request->sendPayload = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        try {
+            Payload::encode($payload);
+        } catch (\JsonException $e) {
+            $app->log->error(sprintf(
+                '[GovBrSatisfaction] corpo da solicitação %d não codifica: %s',
+                $request->id,
+                Mask::forLogText($e->getMessage(), $known)
+            ));
 
-        // Marca antes de chamar, e grava na hora: se o processo morrer no meio do
-        // POST não há como saber se chegou, e é preferível deixar de convidar a
-        // convidar duas vezes.
-        $request->sendStatus = SatisfactionRequest::STATUS_SENT;
-        $request->sendTimestamp = new \DateTime();
-        $request->save(true);
+            $result = new Result(Outcome::Rejected, null, 'erro ao montar o corpo: ' . $e->getMessage());
 
-        // Só que nem toda falha é ambígua, e o desfecho decide o que a linha
-        // passa a dizer. Manter "enviado" depois de uma recusa afirmaria que o
-        // cidadão foi convidado quando ninguém foi.
-        $resultado = $this->plugin->client()->send($payload);
-
-        // O que a API respondeu fica na linha, e não só no log: é o que permite
-        // a quem opera distinguir no painel um payload recusado de um BSC fora
-        // do ar, sem precisar de acesso ao servidor.
-        $request->sendHttpStatus = $resultado->status;
-        $request->sendResponse = $resultado->body;
-        $request->sendDetail = $resultado->detail === null
-            ? null
-            : mb_substr($resultado->detail, 0, 500);
-
-        if ($resultado->outcome === Result::SENT) {
+            $request->sendStatus = SatisfactionRequest::STATUS_REJECTED;
+            $request->sendDetail = self::detail($result, $known);
             $request->save(true);
 
-            return true;
+            $this->record($dispatch, $number, $result, null, $startedAt);
+            $this->close($request);
+
+            return SendOutcome::Done;
         }
 
-        $request->sendAttempts = (int) $request->sendAttempts + 1;
-        $request->sendTimestamp = null;
+        try {
+            $result = $client->send($payload);
+        } catch (\Throwable $e) {
+            $app->log->error(sprintf(
+                '[GovBrSatisfaction] o cliente lançou ao enviar a solicitação %d: %s',
+                $request->id,
+                Mask::forLogText($e->getMessage(), $known)
+            ));
 
-        // Transitório vira recusa quando as tentativas se esgotam: continuar é
-        // admitir que o caso se resolve sozinho, e passado esse ponto ele não
-        // se resolveu. Melhor aparecer no painel do que consumir a fila.
-        $desistir = $request->sendAttempts >= self::MAX_ATTEMPTS;
+            $result = new Result(Outcome::Retry, null, 'erro no envio: ' . $e->getMessage());
+        }
 
-        if ($desistir && $resultado->outcome === Result::RETRY) {
+        $failed = $result->outcome === Outcome::Retry;
+        $giveUp = $failed && $number >= self::MAX_ATTEMPTS;
+
+        if ($failed) {
+            $request->sendAttempts = $number;
+        }
+
+        if ($giveUp) {
             $app->log->error(sprintf(
                 '[GovBrSatisfaction] solicitação %d recusada após %d tentativas sem sucesso',
                 $request->id,
-                $request->sendAttempts
+                $number
             ));
         }
 
-        // Recusa definitiva fica visível no painel e sai da fila; transitória
-        // volta a pendente para a varredura seguinte.
-        $request->sendStatus = $resultado->outcome === Result::REJECTED || $desistir
-            ? SatisfactionRequest::STATUS_REJECTED
-            : SatisfactionRequest::STATUS_PENDING;
+        $request->sendHttpStatus = $result->status;
+        $request->sendDetail = self::detail($result, $known);
+        $request->sendStatus = match (true) {
+            $result->outcome === Outcome::Sent => SatisfactionRequest::STATUS_SENT,
+            $result->outcome === Outcome::Rejected, $giveUp => SatisfactionRequest::STATUS_REJECTED,
+            default => SatisfactionRequest::STATUS_PENDING,
+        };
+
+        if ($request->sendStatus === SatisfactionRequest::STATUS_SENT) {
+            $request->sendTimestamp = new \DateTime();
+        }
 
         $request->save(true);
 
-        // Só o transitório que ainda tem tentativa pede outra varredura:
-        // repetir uma recusa encheria o log sem chance de mudar de resultado.
-        return $request->sendStatus === SatisfactionRequest::STATUS_REJECTED;
+        $this->record($dispatch, $number, $result, $payload, $startedAt);
+
+        if ($request->sendStatus === SatisfactionRequest::STATUS_PENDING) {
+            return SendOutcome::Retry;
+        }
+
+        $this->close($request);
+
+        return SendOutcome::Done;
+    }
+
+    /** Devolve à fila: zera tentativas e abre um envio. */
+    public function requeue(SatisfactionRequest $request, User $by): void
+    {
+        $app = App::i();
+
+        $app->log->info(sprintf(
+            '[GovBrSatisfaction] solicitação %d devolvida à fila pelo usuário %d (estava %s, HTTP %s: %s)',
+            $request->id,
+            $by->id,
+            $request->sendStatus,
+            $request->sendHttpStatus ?? '-',
+            Mask::forLogText($request->sendDetail ?? '-')
+        ));
+
+        $request->sendStatus = SatisfactionRequest::STATUS_PENDING;
+        $request->sendAttempts = 0;
+        $request->sendTimestamp = null;
+
+        $app->disableAccessControl();
+
+        try {
+            $request->save(true);
+        } finally {
+            $app->enableAccessControl();
+        }
+
+        $this->log->guard(fn() => $this->log->start($request, SatisfactionDispatch::ORIGIN_REQUEUE, $by));
+
+        SendSatisfactionRequestJob::enqueue($request);
+    }
+
+    /**
+     * Devolve à fila um lote, com jobs escalonados.
+     *
+     * @param SatisfactionRequest[] $requests
+     * @return int Quantas voltaram
+     */
+    public function requeueMany(array $requests, User $by): int
+    {
+        if (!$requests) {
+            return 0;
+        }
+
+        $app = App::i();
+        $app->disableAccessControl();
+
+        try {
+            foreach (array_values($requests) as $i => $request) {
+                $request->sendStatus = SatisfactionRequest::STATUS_PENDING;
+                $request->sendAttempts = 0;
+                $request->sendTimestamp = null;
+                $request->save();
+            }
+
+            $app->em->flush();
+
+            foreach (array_values($requests) as $i => $request) {
+                $this->log->guard(fn() => $this->log->start($request, SatisfactionDispatch::ORIGIN_BULK, $by));
+
+                $delay = $i * SendSatisfactionRequestJob::BULK_INTERVAL;
+                SendSatisfactionRequestJob::enqueue($request, $delay > 0 ? "+{$delay} seconds" : 'now');
+            }
+        } finally {
+            $app->enableAccessControl();
+        }
+
+        $ids = array_map(fn(SatisfactionRequest $r) => $r->id, $requests);
+
+        $app->log->info(sprintf(
+            '[GovBrSatisfaction] %d solicitações devolvidas à fila pelo usuário %d, espaçadas de %d s (ids %d a %d)',
+            count($requests),
+            $by->id,
+            SendSatisfactionRequestJob::BULK_INTERVAL,
+            min($ids),
+            max($ids)
+        ));
+
+        return count($requests);
+    }
+
+    /** Antecipa a tentativa em um envio novo, sem zerar tentativas. */
+    public function retryNow(SatisfactionRequest $request, User $by): void
+    {
+        App::i()->log->info(sprintf(
+            '[GovBrSatisfaction] solicitação %d: tentativa antecipada pelo usuário %d (HTTP %s: %s)',
+            $request->id,
+            $by->id,
+            $request->sendHttpStatus ?? '-',
+            Mask::forLogText($request->sendDetail ?? '-')
+        ));
+
+        $this->log->guard(fn() => $this->log->start($request, SatisfactionDispatch::ORIGIN_RETRY_NOW, $by));
+
+        SendSatisfactionRequestJob::enqueue($request);
+    }
+
+    /** Grava a tentativa no envio. */
+    private function record(?SatisfactionDispatch $dispatch, int $number, Result $result, ?array $payload, \DateTime $startedAt): void
+    {
+        if (!$dispatch) {
+            return;
+        }
+
+        $exchange = $result->exchange;
+
+        $this->log->guard(fn() => $this->log->recordAttempt(
+            $dispatch,
+            number: $number,
+            maxAttempts: self::MAX_ATTEMPTS,
+            outcome: $exchange?->simulated ? SatisfactionAttempt::OUTCOME_SIMULATED : $result->outcome->value,
+            payload: $payload,
+            httpStatus: $result->status,
+            response: $result->body,
+            detail: $result->detail,
+            method: $exchange?->method,
+            endpoint: $exchange?->endpoint,
+            responseHeaders: $exchange?->responseHeaders,
+            durationMs: $exchange?->durationMs,
+            sentAt: $exchange?->sentAt ?? $startedAt,
+        ));
+    }
+
+    /** Encerra os envios pendentes da solicitação na situação dela. */
+    private function close(SatisfactionRequest $request): void
+    {
+        $this->log->guard(fn() => $this->log->finishPending($request, $request->sendStatus));
+    }
+
+    /** Resumo mascarado, no tamanho da coluna. */
+    private static function detail(Result $result, array $known): ?string
+    {
+        return $result->detail === null
+            ? null
+            : mb_substr(Mask::forLogText($result->detail, $known), 0, Result::DETAIL_MAX);
     }
 }

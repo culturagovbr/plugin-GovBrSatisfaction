@@ -2,31 +2,29 @@
 
 namespace GovBrSatisfaction\Controllers;
 
+use GovBrSatisfaction\Bsc\Mask;
 use GovBrSatisfaction\Bsc\Payload;
+use GovBrSatisfaction\Entities\SatisfactionAttempt;
+use GovBrSatisfaction\Entities\SatisfactionDispatch;
 use GovBrSatisfaction\Entities\SatisfactionRequest;
+use GovBrSatisfaction\Services\DispatchLog;
+use GovBrSatisfaction\Services\PayloadReveal;
 use MapasCulturais\App;
 
 /**
- * Leitura das solicitações de avaliação, para a tela do painel.
- *
- * Restrito a quem administra a instalação: é a única fonte sobre o que foi
- * disparado ao gov.br, já que de lá não vem retorno.
- *
- * Só leitura — as regras vivem no código e no `.env`, e um endpoint de escrita
- * seria um jeito de quebrar por acidente o que foi acordado com a área.
+ * Painel de solicitações: listagem, conteúdo enviado, histórico de envios, devolver à fila.
  *
  * @package GovBrSatisfaction
  */
 class Requests extends \MapasCulturais\Controller
 {
-    const POR_PAGINA = 25;
+    const PER_PAGE = 25;
+
+    /** Envios por página do histórico. */
+    const DISPATCHES_PER_PAGE = 20;
 
     /**
-     * Página de solicitações, com os filtros aplicados e os totais do conjunto.
-     *
-     * DQL com campos escalares em vez de entidades hidratadas: trazê-las
-     * inteiras carregaria usuário e agente por associação preguiçosa, uma
-     * consulta por linha.
+     * Página de solicitações, com filtros e totais.
      *
      * @return void
      */
@@ -36,74 +34,85 @@ class Requests extends \MapasCulturais\Controller
 
         $app = App::i();
 
-        $pagina = max(1, (int) ($this->data['pagina'] ?? 1));
+        $page = max(1, (int) ($this->data['pagina'] ?? 1));
 
         $qb = $app->em->createQueryBuilder()
             ->from(SatisfactionRequest::class, 'r')
             ->join('r.user', 'u')
             ->leftJoin('u.profile', 'a');
 
-        foreach (['situacao' => 'sendStatus', 'servico' => 'servico'] as $campo => $propriedade) {
-            $valor = $this->data[$campo] ?? '';
+        foreach (['situacao' => 'sendStatus', 'servico' => 'servico'] as $field => $property) {
+            $value = $this->data[$field] ?? '';
 
-            if (is_string($valor) && $valor !== '') {
-                $qb->andWhere("r.{$propriedade} = :{$campo}")->setParameter($campo, $valor);
+            if (is_string($value) && $value !== '') {
+                $qb->andWhere("r.{$property} = :{$field}")->setParameter($field, $value);
             }
+        }
+
+        $search = $this->data['busca'] ?? '';
+
+        if (is_string($search) && trim($search) !== '') {
+            $this->applySearch($qb, trim($search));
         }
 
         $total = (int) (clone $qb)->select('COUNT(r.id)')->getQuery()->getSingleScalarResult();
 
-        // Só os campos que a tela mostra: hidratar a entidade inteira traria o
-        // usuário e o agente por associação preguiçosa, uma consulta por linha.
-        $registros = (clone $qb)
+        $records = (clone $qb)
             ->select('r.id, r.servico, r.sendStatus, r.objectType, r.objectId,
                       r.createTimestamp, r.sendTimestamp, r.sendHttpStatus, r.sendDetail,
-                      r.sendResponse, r.sendAttempts, u.id AS userId, u.email, a.name AS agente')
+                      r.sendAttempts, u.id AS userId, u.email, a.name AS agente')
             ->orderBy('r.createTimestamp', 'DESC')
-            // Desempate obrigatório: várias solicitações nascem no mesmo segundo
-            // — uma carga inicial, um lote de publicações —, e ordem indefinida
-            // entre elas faz a paginação por deslocamento repetir uma linha numa
-            // página e perder outra na seguinte.
             ->addOrderBy('r.id', 'DESC')
-            ->setFirstResult(($pagina - 1) * self::POR_PAGINA)
-            ->setMaxResults(self::POR_PAGINA)
+            ->setFirstResult(($page - 1) * self::PER_PAGE)
+            ->setMaxResults(self::PER_PAGE)
             ->getQuery()
             ->getResult();
 
-        // Os totais ignoram o filtro de propósito: eles são o retrato do
-        // conjunto, e precisam continuar válidos enquanto se navega dentro de
-        // uma situação específica.
-        $totais = [];
+        // Totais sem filtro.
+        $totals = [];
 
-        $contagens = $app->em->createQueryBuilder()
+        $counts = $app->em->createQueryBuilder()
             ->select('r.sendStatus AS situacao, COUNT(r.id) AS n')
             ->from(SatisfactionRequest::class, 'r')
             ->groupBy('r.sendStatus')
             ->getQuery()
             ->getResult();
 
-        foreach ($contagens as $linha) {
-            $totais[$linha['situacao']] = (int) $linha['n'];
+        foreach ($counts as $row) {
+            $totals[$row['situacao']] = (int) $row['n'];
         }
 
         $this->json([
-            'registros' => array_map([$this, 'formatar'], $registros),
+            'registros' => array_map([$this, 'formatar'], $records),
             'total' => $total,
-            'pagina' => $pagina,
-            'paginas' => (int) ceil($total / self::POR_PAGINA),
-            'totais' => $totais,
+            'pagina' => $page,
+            'paginas' => (int) ceil($total / self::PER_PAGE),
+            'totais' => $totals,
         ]);
     }
 
+    /** Busca por uuid do envio, id do usuário ou nome do agente. */
+    protected function applySearch(\Doctrine\ORM\QueryBuilder $qb, string $search): void
+    {
+        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $search)) {
+            $qb->andWhere('EXISTS (SELECT d.id FROM ' . SatisfactionDispatch::class . ' d WHERE d.request = r AND d.uuid = :uuid)')
+                ->setParameter('uuid', strtolower($search));
+
+            return;
+        }
+
+        if (ctype_digit($search)) {
+            $qb->andWhere('u.id = :userId')->setParameter('userId', (int) $search);
+
+            return;
+        }
+
+        $qb->andWhere('LOWER(a.name) LIKE :name')
+            ->setParameter('name', '%' . addcslashes(mb_strtolower($search), '%_\\') . '%');
+    }
+
     /**
-     * O conteúdo enviado ao BSC, para conferência.
-     *
-     * É reconstrução, não cópia: CPF, nome e e-mail vêm do cadastro atual, e
-     * não da tabela — se a pessoa mudou o cadastro depois do envio, aparece o
-     * valor de hoje. A tela diz isso.
-     *
-     * Saem mascarados: aqui se confere formato e roteamento, e o dado completo
-     * está no cadastro do usuário.
+     * Conteúdo enviado (cópia ou prévia) e resposta do BSC, mascarados.
      *
      * @return void
      */
@@ -116,124 +125,462 @@ class Requests extends \MapasCulturais\Controller
         $request = $app->repo(SatisfactionRequest::class)->find((int) ($this->data['id'] ?? 0));
 
         if (!$request) {
-            // Erro de domínio em endpoint JSON volta como JSON com chave `error`,
-            // como em Security\Controllers\Monitor. `halt()` escreveria texto puro
-            // sem Content-Type, e o script.js faz `response.json()` antes de checar
-            // o `ok`: a mensagem específica viraria uma falha genérica na tela.
             $this->json(['error' => \MapasCulturais\i::__('Solicitação não encontrada.')], 404);
 
             return;
         }
 
-        $plugin = $app->plugins['GovBrSatisfaction'] ?? null;
+        $plugin = $this->plugin();
 
-        if (!$plugin) {
-            $this->json(['error' => \MapasCulturais\i::__('Plugin indisponível.')], 503);
+        $attempt = (new DispatchLog())->lastAttempt($request->id);
+        $sent = $attempt?->payload ? json_decode($attempt->payload, true) : null;
 
-            return;
-        }
-        // O que foi enviado, e não o que seria enviado agora. Esta distinção é a
-        // razão de a coluna existir: reconstruir leria o cadastro de hoje, e uma
-        // pessoa que corrigiu o CPF depois do envio apareceria com o valor novo,
-        // afirmando que foi esse que saiu.
-        $enviado = $request->sendPayload ? json_decode($request->sendPayload, true) : null;
-
-        if (is_array($enviado)) {
-            $this->json([
-                'payload' => $this->mascarar($enviado),
-                'reconstruido' => false,
-                'motivo' => null,
-            ]);
+        if (is_array($sent)) {
+            $this->respondContent(payload: $sent, preview: false, response: $attempt->response);
 
             return;
         }
 
-        // Sem cópia guardada — linha anterior à coluna, ou que nunca chegou a
-        // ser enviada. Aí a reconstrução é o que há, e a tela avisa.
         $cpf = Payload::cpf($request->user, $plugin->config['metadataFieldCPF']);
 
         if (!$cpf) {
+            $this->respondContent(payload: null, preview: true, reason: \MapasCulturais\i::__('Sem CPF no cadastro: não há conteúdo a enviar.'));
+
+            return;
+        }
+
+        $this->respondContent(payload: Payload::build($request, $cpf), preview: true, response: $attempt?->response);
+    }
+
+    protected function respondContent(?array $payload, bool $preview, ?string $reason = null, ?string $response = null): void
+    {
+        $this->json([
+            'payload' => $payload === null ? null : Mask::forScreen($payload),
+            'reconstruido' => $preview,
+            'motivo' => $reason,
+            'resposta' => $response === null ? null : Mask::forBody($response),
+        ]);
+    }
+
+    /**
+     * Envios de uma solicitação, do mais novo ao mais antigo, com as tentativas.
+     *
+     * @return void
+     */
+    public function GET_dispatches()
+    {
+        $this->requireInstallationAdmin();
+
+        $app = App::i();
+
+        $request = $app->repo(SatisfactionRequest::class)->find((int) ($this->data['id'] ?? 0));
+
+        if (!$request) {
+            $this->json(['error' => \MapasCulturais\i::__('Solicitação não encontrada.')], 404);
+
+            return;
+        }
+
+        $log = new DispatchLog();
+        $page = max(1, (int) ($this->data['pagina'] ?? 1));
+        $total = $log->countByRequest($request->id);
+        $rows = $log->findByRequest(
+            $request->id,
+            ($page - 1) * self::DISPATCHES_PER_PAGE,
+            self::DISPATCHES_PER_PAGE
+        );
+
+        $this->json([
+            'envios' => array_map([$this, 'formatDispatch'], $rows),
+            'total' => $total,
+            'pagina' => $page,
+            'paginas' => (int) ceil($total / self::DISPATCHES_PER_PAGE),
+        ]);
+    }
+
+    /** Envio no formato da tela. */
+    protected function formatDispatch(array $row): array
+    {
+        $dispatch = $row['dispatch'];
+
+        return [
+            'uuid' => $dispatch->uuid,
+            'situacao' => $dispatch->state,
+            'origem' => $dispatch->origin,
+            'autor' => $row['userId'] === null ? null : ['id' => $row['userId']],
+            'criadoEm' => $dispatch->createTimestamp->getTimestamp(),
+            'finalizadoEm' => $dispatch->finishTimestamp?->getTimestamp(),
+            'tentativas' => array_map([$this, 'formatAttempt'], $row['attempts']),
+        ];
+    }
+
+    /** Tentativa no formato da tela, mascarada. */
+    protected function formatAttempt(SatisfactionAttempt $attempt): array
+    {
+        $payload = $attempt->payload === null ? null : json_decode($attempt->payload, true);
+
+        return [
+            'id' => (int) $attempt->id,
+            'numero' => (int) $attempt->number,
+            'maximo' => (int) $attempt->maxAttempts,
+            'situacao' => $attempt->outcome,
+            'metodo' => $attempt->method,
+            'endpoint' => $attempt->endpoint,
+            'httpStatus' => $attempt->httpStatus === null ? null : (int) $attempt->httpStatus,
+            'detalhe' => $attempt->detail === null ? null : Mask::forLogText($attempt->detail),
+            'payload' => is_array($payload) ? Mask::forScreen($payload) : null,
+            'resposta' => $attempt->response === null ? null : Mask::forBody($attempt->response),
+            'respostaCortada' => (bool) $attempt->responseTruncated,
+            'cabecalhos' => $attempt->responseHeaders === null ? null : Mask::headers($attempt->responseHeaders),
+            'enviadoEm' => $attempt->sentAt->getTimestamp(),
+            'duracaoMs' => $attempt->durationMs === null ? null : (int) $attempt->durationMs,
+            'revelavel' => $attempt->payloadSealed !== null,
+        ];
+    }
+
+    /**
+     * Abre a janela de revelação do usuário, com o motivo e a senha.
+     *
+     * @return void
+     */
+    public function POST_unlockReveal()
+    {
+        $this->requireInstallationAdmin();
+        $this->requireScreenRequest();
+
+        $app = App::i();
+        $reveal = new PayloadReveal($this->plugin());
+
+        $reason = trim((string) ($this->data['motivo'] ?? ''));
+
+        if (mb_strlen($reason) < PayloadReveal::REASON_MIN) {
+            $this->json(['error' => sprintf(\MapasCulturais\i::__('Descreva o motivo com pelo menos %d caracteres.'), PayloadReveal::REASON_MIN)], 400);
+
+            return;
+        }
+
+        $locked = $reveal->lockedUntil($app->user);
+
+        if ($locked) {
+            $reveal->deny($app->user, null, 'bloqueado por senhas erradas');
+            $this->passwordLocked($locked);
+
+            return;
+        }
+
+        $check = PayloadReveal::checkPassword($app->user, (string) ($this->data['senha'] ?? ''));
+
+        if ($check !== PayloadReveal::PASSWORD_OK) {
+            $missing = $check === PayloadReveal::PASSWORD_MISSING;
+
+            $reveal->deny($app->user, null, $missing ? 'conta sem senha local' : 'senha incorreta');
+
+            $locked = $missing ? null : $reveal->failPassword($app->user);
+
+            if ($locked) {
+                $this->passwordLocked($locked);
+
+                return;
+            }
+
             $this->json([
-                'payload' => null,
-                'reconstruido' => true,
-                'motivo' => \MapasCulturais\i::__('Sem CPF no cadastro: não há conteúdo a enviar.'),
-            ]);
+                'error' => $missing
+                    ? \MapasCulturais\i::__('Sua conta não tem senha cadastrada, por isso não é possível confirmar esta ação.')
+                    : \MapasCulturais\i::__('Senha incorreta.'),
+                'senha' => false,
+            ], 403);
+
+            return;
+        }
+
+        $until = $reveal->unlock($app->user, mb_substr($reason, 0, 1000));
+
+        $this->noStore();
+        $this->json(['ate' => $until, 'segundos' => PayloadReveal::WINDOW, 'restantes' => $reveal->remaining()]);
+    }
+
+    /**
+     * Payload real de uma tentativa, dentro da janela aberta.
+     *
+     * @return void
+     */
+    public function POST_reveal()
+    {
+        $this->requireInstallationAdmin();
+        $this->requireScreenRequest();
+
+        $app = App::i();
+        $plugin = $this->plugin();
+        $reveal = new PayloadReveal($plugin);
+
+        $action = $this->data['acao'] ?? PayloadReveal::ACTION_REVEAL;
+
+        if (!in_array($action, [PayloadReveal::ACTION_REVEAL, PayloadReveal::ACTION_COPY], true)) {
+            $this->json(['error' => \MapasCulturais\i::__('Ação inválida.')], 400);
+
+            return;
+        }
+
+        $attempt = $app->repo(SatisfactionAttempt::class)->find((int) ($this->data['tentativa'] ?? 0));
+
+        if (!$attempt) {
+            $this->json(['error' => \MapasCulturais\i::__('Tentativa não encontrada.')], 404);
+
+            return;
+        }
+
+        $until = $reveal->windowUntil($app->user);
+
+        if (!$until) {
+            $reveal->deny($app->user, $attempt, 'sem janela aberta');
+            $this->json(['error' => \MapasCulturais\i::__('Informe o motivo para revelar.'), 'janela' => false], 403);
+
+            return;
+        }
+
+        if ($reveal->remaining() < 1) {
+            $reveal->deny($app->user, $attempt, 'limite da janela');
+            $reveal->close();
+            $this->json([
+                'error' => sprintf(\MapasCulturais\i::__('Limite de %d revelações atingido. Informe um novo motivo.'), PayloadReveal::WINDOW_LIMIT),
+                'janela' => false,
+                'limite' => true,
+            ], 403);
+
+            return;
+        }
+
+        if ($attempt->payloadSealed === null || !$plugin->vault()) {
+            $this->json(['error' => \MapasCulturais\i::__('O conteúdo real desta tentativa não foi guardado.')], 404);
+
+            return;
+        }
+
+        try {
+            $payload = $reveal->reveal($app->user, $attempt, $action);
+        } catch (\RuntimeException | \JsonException $e) {
+            $app->log->error(sprintf('[GovBrSatisfaction] tentativa %d não abriu: %s', $attempt->id, $e->getMessage()));
+            $reveal->deny($app->user, $attempt, 'não foi possível abrir o conteúdo guardado');
+            $this->json(['error' => \MapasCulturais\i::__('Não foi possível abrir o conteúdo guardado.')], 500);
+
+            return;
+        }
+
+        $this->noStore();
+        $this->json([
+            'payload' => $payload,
+            'ate' => $until,
+            'segundos' => max(0, $until - time()),
+            'restantes' => $reveal->remaining(),
+        ]);
+    }
+
+    /** Recusa por excesso de senhas erradas. */
+    protected function passwordLocked(int $until): void
+    {
+        $this->json([
+            'error' => sprintf(
+                \MapasCulturais\i::__('Muitas tentativas com senha incorreta. Tente de novo em %d minuto(s).'),
+                max(1, (int) ceil(($until - time()) / 60))
+            ),
+            'senha' => false,
+        ], 429);
+    }
+
+    /** Resposta que não pode ficar em cache. */
+    protected function noStore(): void
+    {
+        $app = App::i();
+        $app->response = $app->response->withHeader('Cache-Control', 'no-store');
+    }
+
+    /** Situações que podem voltar à fila. */
+    const REQUEUE_STATUSES = [
+        SatisfactionRequest::STATUS_REJECTED,
+        SatisfactionRequest::STATUS_NO_CPF,
+    ];
+
+    /**
+     * Devolve à fila (recusada, sem CPF) ou antecipa a tentativa (pendente com falha).
+     *
+     * @return void
+     */
+    public function POST_requeue()
+    {
+        $this->requireInstallationAdmin();
+        $this->requireScreenRequest();
+
+        $app = App::i();
+
+        $request = $app->repo(SatisfactionRequest::class)->find((int) ($this->data['id'] ?? 0));
+
+        if (!$request) {
+            $this->json(['error' => \MapasCulturais\i::__('Solicitação não encontrada.')], 404);
+
+            return;
+        }
+
+        $waitingRetry = $request->sendStatus === SatisfactionRequest::STATUS_PENDING
+            && $request->sendDetail !== null;
+
+        if ($waitingRetry) {
+            $this->plugin()->sender()->retryNow($request, $app->user);
+        } elseif (in_array($request->sendStatus, self::REQUEUE_STATUSES, true)) {
+            $this->plugin()->sender()->requeue($request, $app->user);
+        } else {
+            $this->json(['error' => \MapasCulturais\i::__('Só solicitações recusadas, sem CPF ou pendentes com falha podem voltar à fila.')], 400);
 
             return;
         }
 
         $this->json([
-            'payload' => $this->mascarar(Payload::build($request, $cpf)),
-            'reconstruido' => true,
-            'motivo' => null,
+            'id' => $request->id,
+            'situacao' => $request->sendStatus,
+            'tentativas' => (int) $request->sendAttempts,
+            'disparada' => null,
+        ]);
+    }
+
+    /** Teto por clique. */
+    const BULK_MAX = 500;
+
+    /**
+     * Devolve à fila as recusadas do filtro e da busca, com jobs escalonados.
+     *
+     * @return void
+     */
+    public function POST_requeueAll()
+    {
+        $this->requireInstallationAdmin();
+        $this->requireScreenRequest();
+
+        $app = App::i();
+
+        $qb = $app->em->createQueryBuilder()
+            ->select('r')
+            ->from(SatisfactionRequest::class, 'r')
+            ->join('r.user', 'u')
+            ->leftJoin('u.profile', 'a')
+            ->where('r.sendStatus = :recusado')
+            ->setParameter('recusado', SatisfactionRequest::STATUS_REJECTED);
+
+        $service = $this->data['servico'] ?? '';
+
+        if (is_string($service) && $service !== '') {
+            $qb->andWhere('r.servico = :servico')->setParameter('servico', $service);
+        }
+
+        $search = $this->data['busca'] ?? '';
+
+        if (is_string($search) && trim($search) !== '') {
+            $this->applySearch($qb, trim($search));
+        }
+
+        $total = (int) (clone $qb)->select('COUNT(r.id)')->getQuery()->getSingleScalarResult();
+
+        $requests = $qb
+            ->orderBy('r.createTimestamp', 'ASC')
+            ->addOrderBy('r.id', 'ASC')
+            ->setMaxResults(self::BULK_MAX)
+            ->getQuery()
+            ->getResult();
+
+        $requeued = $this->plugin()->sender()->requeueMany($requests, $app->user);
+
+        $this->json([
+            'devolvidas' => $requeued,
+            'restantes' => max(0, $total - $requeued),
+            'intervalo' => \GovBrSatisfaction\Jobs\SendSatisfactionRequestJob::BULK_INTERVAL,
         ]);
     }
 
     /**
-     * Esconde o dado pessoal do payload antes de ele chegar à tela.
+     * Devolve à fila as recusadas e sem CPF selecionadas, com jobs escalonados.
      *
-     * `cpfConsulta` e `usuario` repetem o CPF: sem mascarar os três, a tela
-     * mostraria mascarado num campo e por extenso nos outros.
-     *
-     * @param array $payload
-     * @return array
+     * @return void
      */
-    protected function mascarar(array $payload): array
+    public function POST_requeueSelected()
     {
-        foreach (['cpfCidadao', 'cpfConsulta', 'usuario'] as $chave) {
-            if (isset($payload[$chave])) {
-                $payload[$chave] = $this->mascararCpf((string) $payload[$chave]);
+        $this->requireInstallationAdmin();
+        $this->requireScreenRequest();
+
+        $app = App::i();
+
+        $ids = $this->selectedIds();
+
+        if ($ids === null) {
+            $this->json(['error' => \MapasCulturais\i::__('Seleção inválida.')], 400);
+
+            return;
+        }
+
+        if (!$ids) {
+            $this->json(['error' => \MapasCulturais\i::__('Nenhuma solicitação selecionada.')], 400);
+
+            return;
+        }
+
+        if (count($ids) > self::BULK_MAX) {
+            $this->json(['error' => sprintf(\MapasCulturais\i::__('Selecione no máximo %d por vez.'), self::BULK_MAX)], 400);
+
+            return;
+        }
+
+        $requests = $app->em->createQueryBuilder()
+            ->select('r')
+            ->from(SatisfactionRequest::class, 'r')
+            ->where('r.id IN (:ids)')
+            ->andWhere('r.sendStatus IN (:statuses)')
+            ->setParameter('ids', $ids)
+            ->setParameter('statuses', self::REQUEUE_STATUSES)
+            ->orderBy('r.createTimestamp', 'ASC')
+            ->addOrderBy('r.id', 'ASC')
+            ->getQuery()
+            ->getResult();
+
+        $requeued = $this->plugin()->sender()->requeueMany($requests, $app->user);
+
+        $this->json([
+            'devolvidas' => $requeued,
+            'ignoradas' => count($ids) - $requeued,
+            'intervalo' => \GovBrSatisfaction\Jobs\SendSatisfactionRequestJob::BULK_INTERVAL,
+        ]);
+    }
+
+    /** Ids da seleção, sem repetição; nulo quando algum é inválido. */
+    protected function selectedIds(): ?array
+    {
+        $raw = $this->data['ids'] ?? [];
+
+        if (is_string($raw)) {
+            $raw = trim($raw) === '' ? [] : explode(',', $raw);
+        }
+
+        if (!is_array($raw)) {
+            return null;
+        }
+
+        $ids = [];
+
+        foreach ($raw as $value) {
+            if (!is_int($value) && !is_string($value)) {
+                return null;
             }
+
+            $id = filter_var(trim((string) $value), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+
+            if ($id === false) {
+                return null;
+            }
+
+            $ids[$id] = $id;
         }
 
-        if (isset($payload['email'])) {
-            $payload['email'] = $this->mascararEmail((string) $payload['email']);
-        }
-
-        if (isset($payload['nomeCidadao'])) {
-            $payload['nomeCidadao'] = $this->mascararNome((string) $payload['nomeCidadao']);
-        }
-
-        return $payload;
+        return array_values($ids);
     }
 
     /**
-     * @param string $cpf
-     * @return string
-     */
-    protected function mascararCpf(string $cpf): string
-    {
-        if (strlen($cpf) !== 11) {
-            return '***';
-        }
-
-        return substr($cpf, 0, 3) . '.***.***-' . substr($cpf, -2);
-    }
-
-    /**
-     * @param string $email
-     * @return string
-     */
-    protected function mascararEmail(string $email): string
-    {
-        [$usuario, $dominio] = array_pad(explode('@', $email, 2), 2, '');
-
-        return mb_substr($usuario, 0, 1) . '***' . ($dominio ? '@' . $dominio : '');
-    }
-
-    /**
-     * @param string $nome
-     * @return string
-     */
-    protected function mascararNome(string $nome): string
-    {
-        $partes = preg_split('/\s+/', trim($nome));
-
-        return $partes[0] . (count($partes) > 1 ? ' ***' : '');
-    }
-
-    /**
-     * Configuração vigente, para a tela avisar quando algo impede o envio.
+     * Configuração vigente, para os avisos da tela.
      *
      * @return void
      */
@@ -241,73 +588,93 @@ class Requests extends \MapasCulturais\Controller
     {
         $this->requireInstallationAdmin();
 
-        $plugin = App::i()->plugins['GovBrSatisfaction'] ?? null;
+        $plugin = $this->plugin();
 
-        if (!$plugin) {
-            $this->json(['error' => \MapasCulturais\i::__('Plugin indisponível.')], 503);
+        $services = [];
 
-            return;
-        }
-
-        $servicos = [];
-
-        foreach ($plugin->config['servicos'] as $chave => $id) {
+        foreach ($plugin->config['servicos'] as $key => $id) {
             if ($id !== '') {
-                $servicos[] = ['id' => (string) $id, 'chave' => $chave];
+                $services[] = ['id' => (string) $id, 'chave' => $key];
             }
         }
 
         $this->json([
             'devMode' => $plugin->isDevMode(),
             'faltando' => $plugin->missingConfig(),
-            'servicos' => $servicos,
+            'servicos' => $services,
+            'loteIntervalo' => \GovBrSatisfaction\Jobs\SendSatisfactionRequestJob::BULK_INTERVAL,
+            'loteMaximo' => self::BULK_MAX,
+            'revelacao' => [
+                'disponivel' => $plugin->vault() !== null,
+                'autorizado' => $plugin->canReveal(App::i()->user),
+                'motivoMinimo' => PayloadReveal::REASON_MIN,
+                'segundos' => PayloadReveal::WINDOW,
+                'limite' => PayloadReveal::WINDOW_LIMIT,
+            ],
         ]);
     }
 
     /**
-     * @param array $registro
+     * @param array $record
      * @return array
      */
-    protected function formatar(array $registro): array
+    protected function formatar(array $record): array
     {
-        // Linhas gravadas antes guardam o nome completo da classe; as novas já
-        // guardam só o tipo.
-        $tipo = $registro['objectType'];
-        $tipo = $tipo && str_contains($tipo, '\\') ? substr(strrchr($tipo, '\\'), 1) : $tipo;
+        $type = $record['objectType'];
+        $type = $type && str_contains($type, '\\') ? substr(strrchr($type, '\\'), 1) : $type;
 
         return [
-            'id' => (int) $registro['id'],
-            'servico' => (string) $registro['servico'],
-            'situacao' => $registro['sendStatus'],
-            'pessoa' => $registro['agente'] ?: $registro['email'],
-            'userId' => (int) $registro['userId'],
-            'origem' => $tipo ? $tipo . ' #' . (int) $registro['objectId'] : null,
-            // instante, e não o texto do banco: quem formata é a tela, no
-            // fuso e no idioma da instalação
-            'registrada' => $registro['createTimestamp']->getTimestamp(),
-            'disparada' => $registro['sendTimestamp']?->getTimestamp(),
-
-            // O que o BSC respondeu, para a linha explicar a si mesma
-            'httpStatus' => $registro['sendHttpStatus'] === null ? null : (int) $registro['sendHttpStatus'],
-            'detalhe' => $registro['sendDetail'],
-            'resposta' => $registro['sendResponse'],
-            'tentativas' => (int) $registro['sendAttempts'],
+            'id' => (int) $record['id'],
+            'servico' => (string) $record['servico'],
+            'situacao' => $record['sendStatus'],
+            'pessoa' => $record['agente'] ?: ($record['email'] ? Mask::email($record['email']) : null),
+            'userId' => (int) $record['userId'],
+            'origem' => $type ? $type . ' #' . (int) $record['objectId'] : null,
+            'registrada' => $record['createTimestamp']->getTimestamp(),
+            'disparada' => $record['sendTimestamp']?->getTimestamp(),
+            'httpStatus' => $record['sendHttpStatus'] === null ? null : (int) $record['sendHttpStatus'],
+            'detalhe' => $record['sendDetail'] === null ? null : Mask::forLogText($record['sendDetail']),
+            'tentativas' => (int) $record['sendAttempts'],
         ];
     }
 
-    /**
-     * Interrompe quem não administra a instalação.
-     *
-     * @return void
-     */
+    /** Pedido feito pela tela: JSON ou XMLHttpRequest. */
+    protected function requireScreenRequest(): void
+    {
+        $request = App::i()->request;
+        $contentType = strtolower((string) $request->getHeaderLine('Content-Type'));
+
+        if ($request->getHeaderLine('X-Requested-With') !== 'XMLHttpRequest' && !str_starts_with($contentType, 'application/json')) {
+            $this->json(['error' => \MapasCulturais\i::__('Pedido inválido.')], 400);
+        }
+    }
+
+    /** Admin da instalação, plugin ligado e portal atendido. */
     protected function requireInstallationAdmin(): void
     {
         $app = App::i();
 
         $this->requireAuthentication();
 
-        if (!$app->user->is('saasSuperAdmin')) {
+        if (!$app->user->is(\GovBrSatisfaction\Plugin::ADMIN_ROLE)) {
             $app->halt(403, \MapasCulturais\i::__('Acesso restrito.'));
         }
+
+        $this->plugin();
+    }
+
+    protected function plugin(): \GovBrSatisfaction\Plugin
+    {
+        $plugin = \GovBrSatisfaction\Plugin::instance();
+
+        if (!$plugin || !$plugin->config['enabled']) {
+            $this->json(['error' => \MapasCulturais\i::__('Plugin desligado.')], 503);
+        }
+
+        if (!$plugin->isPanelSubsite()) {
+            $this->json(['error' => \MapasCulturais\i::__('Não encontrado.')], 404);
+        }
+
+        return $plugin;
     }
 }

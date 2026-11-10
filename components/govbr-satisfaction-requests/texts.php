@@ -3,7 +3,7 @@
 use MapasCulturais\i;
 
 return [
-    // situações possíveis de uma solicitação
+    // situações de uma solicitação
     'pendente' => i::__('Pendente'),
     'enviado' => i::__('Disparado'),
     'recusado' => i::__('Recusado'),
@@ -18,35 +18,68 @@ return [
     'projeto' => i::__('Cadastrar projeto cultural'),
 
     'todos' => i::__('Todos'),
+    'todas' => i::__('Todas'),
 
-    // "Disparado" é o Mapa tendo enviado, e não o cidadão tendo recebido: a API
-    // não devolve confirmação, e a tela não pode sugerir que devolve
+    // busca e filtros
+    'buscar' => i::__('Nome, id do usuário ou uuid do envio'),
+    'filtrarSituacao' => i::__('Filtrar por situação'),
+
+    // monitoramento em tempo real
+    'tempoReal' => i::__('Monitorar em tempo real'),
+    'pausar' => i::__('Pausar'),
+    'atualizar' => i::__('Atualizar'),
+    'atualizadoEm' => i::__('Atualizado às %s'),
+    'registradaEm' => i::__('registrada em %s'),
+    'disparadaEm' => i::__('disparada em %s'),
+
+    // seleção para devolver à fila
+    'selecionarTodas' => i::__('Selecionar as recusadas e sem CPF desta página'),
+    'selecionar' => i::__('Selecionar a solicitação %s'),
+    'selecionadas' => i::__('%s selecionada(s)'),
+    'acimaDoTeto' => i::__('Selecione no máximo %s por vez.'),
+    'limparSelecao' => i::__('Limpar seleção'),
+    'devolverSelecionadas' => i::__('Devolver selecionadas (%s)'),
+    'devolverSelecionadasTitulo' => i::__('Devolver selecionadas à fila?'),
+    'devolverSelecionadasIgnoradas' => i::__('%s selecionada(s) já não estavam recusadas nem sem CPF e ficaram de fora.'),
+    'devolverSelecionadasErro' => i::__('Não foi possível devolver as selecionadas à fila.'),
+
     'disparadoExplicacao' => i::__('"Disparado" significa que o Mapa enviou a solicitação ao BSC. A confirmação de entrega do e-mail fica do lado do gov.br.'),
 
     'modoDesenvolvimento' => i::__('Modo de desenvolvimento ativo: as solicitações são registradas e o conteúdo é montado, mas nada sai desta instalação.'),
     'faltandoConfig' => i::__('Faltam variáveis de ambiente: %s. Enquanto isso, nada é enviado.'),
 
-    'contagem' => i::__('%1 de %2 solicitações'),
+    'contagem' => i::__('%s de %s solicitações'),
     'erroAoCarregar' => i::__('Não foi possível ler as solicitações.'),
 
-    // Lista vazia é a situação normal de uma instalação que acabou de ligar o
-    // plugin, e não um erro. A dica diz o que faria aparecer alguma coisa.
     'vazioDica' => i::__('As solicitações aparecem aqui quando alguém conclui um dos seis serviços do Mapa da Cultura publicados no gov.br.'),
     'nenhumComFiltro' => i::__('Nenhuma solicitação corresponde ao filtro aplicado.'),
     'limparFiltros' => i::__('Limpar filtros'),
 
-    'ver' => i::__('Ver conteúdo'),
-    'respostaTitulo' => i::__('Resposta do BSC'),
-    'copiar' => i::__('Copiar'),
-    'copiado' => i::__('Copiado!'),
-    'copiarErro' => i::__('Não foi possível copiar.'),
-    'payloadTitulo' => i::__('Conteúdo enviado ao BSC'),
+    'historico' => i::__('Histórico de envios'),
 
-    // A cópia do envio só nasce no momento do envio. Antes disso — e são
-    // segundos, entre publicar e o job varrer — o que se mostra é uma prévia
-    // montada do cadastro atual, e a tela precisa dizer isso.
-    'payloadPrevia' => i::__('Ainda não enviado. O conteúdo abaixo é uma prévia montada do cadastro atual e pode mudar até o envio.'),
-    'payloadPreviaSelo' => i::__('prévia'),
-    'payloadErro' => i::__('Não foi possível montar o conteúdo.'),
+    'devolver' => i::__('Devolver à fila'),
+    'devolverTitulo' => i::__('Devolver à fila?'),
+    'devolverConfirmacao' => i::__('A solicitação volta a pendente e o Mapa tenta enviar de novo em seguida. Se o BSC aceitar, o cidadão recebe o e-mail do gov.br.'),
+    'devolverConfirmacaoSemCpf' => i::__('O CPF é lido de novo do cadastro. Se a pessoa já o preencheu, o envio acontece em seguida; senão, a solicitação volta a "Sem CPF".'),
+    'devolvido' => i::__('Solicitação devolvida à fila. O envio acontece em seguida.'),
+    'devolverErro' => i::__('Não foi possível devolver a solicitação à fila.'),
+
+    // lote: todas as recusadas do filtro atual, uma a cada N segundos
+    'loteResumo' => i::__('%s recusada(s) com o filtro atual'),
+    'devolverTodas' => i::__('Devolver todas à fila (%s)'),
+    'devolverTodasTitulo' => i::__('Devolver todas à fila?'),
+    'devolverTodasConfirmacao' => i::__('%s solicitações voltam à fila, uma a cada %s segundos; a última sai em cerca de %s. O contador de tentativas de cada uma é zerado.'),
+    'devolverTodasTeto' => i::__('Saem %s por vez, das mais antigas para as mais novas; há %s no total. Clique de novo para as próximas.'),
+    'devolverTodasFeito' => i::__('%s solicitações devolvidas à fila; a última será tentada em cerca de %s.'),
+    'devolverTodasRestantes' => i::__('Ainda restam %s recusadas. Clique de novo para as próximas.'),
+    'devolverTodasErro' => i::__('Não foi possível devolver as solicitações à fila.'),
+
+    // pendente que já falhou e espera o intervalo de retentativa
+    'tentarAgora' => i::__('Tentar agora'),
+    'tentarAgoraTitulo' => i::__('Tentar agora?'),
+    'tentarAgoraConfirmacao' => i::__('O Mapa tenta enviar agora, sem esperar o intervalo de retentativa.'),
+    'tentarAgoraFeito' => i::__('Nova tentativa de envio iniciada.'),
+    'tentativas' => i::__('%s tentativa(s) sem sucesso antes da recusa'),
+
     'cadastroDaConta' => i::__('cadastro da conta'),
 ];

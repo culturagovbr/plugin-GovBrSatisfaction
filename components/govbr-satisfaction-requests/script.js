@@ -1,3 +1,6 @@
+// intervalo das leituras no monitoramento em tempo real
+const GOVBR_SATISFACTION_INTERVALO_MONITOR = 5000;
+
 app.component('govbr-satisfaction-requests', {
     template: $TEMPLATES['govbr-satisfaction-requests'],
 
@@ -5,11 +8,17 @@ app.component('govbr-satisfaction-requests', {
         // os textos estão localizados no arquivo texts.php deste componente
         const text = Utils.getTexts('govbr-satisfaction-requests');
         const messages = useMessages();
-        return { text, messages };
+
+        // substitui cada `%s` do texto pelo próximo argumento
+        const formatar = (chave, ...valores) => valores.reduce((s, v) => s.replace('%s', v), text(chave));
+
+        return { text, formatar, messages };
     },
 
     data() {
         return {
+            situacoes: ['pendente', 'enviado', 'recusado', 'sem-cpf'],
+
             registros: [],
             total: 0,
             pagina: 1,
@@ -18,57 +27,82 @@ app.component('govbr-satisfaction-requests', {
             carregando: false,
 
             // configuração vigente, para os avisos do topo
-            status: { devMode: false, faltando: [], servicos: [] },
+            status: { devMode: false, faltando: [], servicos: [], loteIntervalo: 10, loteMaximo: 500, revelacao: { disponivel: false, autorizado: false, motivoMinimo: 10, segundos: 120 } },
 
-            filtros: { situacao: '', servico: '' },
+            filtros: { situacao: '', servico: '', busca: '' },
 
-            // conteúdo da solicitação aberta no momento
-            payload: null,
-            payloadMotivo: null,
-            // se o conteúdo exibido é cópia do envio ou reconstrução do cadastro
-            payloadReconstruido: false,
-            // qual bloco acabou de ser copiado, para a confirmação na tela
-            copiado: null,
-            carregandoPayload: false,
+            // ids selecionados, entre páginas e filtros
+            selecionados: {},
+            devolvendoSelecionadas: false,
 
-            // Cada pedido recebe um número, e só a resposta do mais recente é
-            // aceita: sem isso, uma consulta lenta sem filtro que voltasse
-            // depois de outra filtrada sobrescreveria a lista já filtrada.
+            // linhas com o histórico aberto, e versão para recarregá-lo
+            abertos: {},
+            versoes: {},
+
+            // id da solicitação sendo devolvida à fila
+            devolvendo: null,
+            devolvendoTodas: false,
+
+            // só a resposta do pedido mais recente é aceita
             geracao: 0,
-            geracaoPayload: 0,
+
+            // monitoramento em tempo real
+            tempoReal: false,
+            proximaLeitura: null,
+            atualizadoEm: null,
+            falhouAoAtualizar: false,
+            leitura: 0,
         };
     },
 
     computed: {
-        situacoes() {
-            return ['pendente', 'enviado', 'recusado', 'sem-cpf'];
-        },
-
-        // Os nomes de campo são os da API de propósito: a tela serve para
-        // conferir o que o BSC recebeu, e traduzi-los tornaria a conferência
-        // contra a documentação deles mais difícil, não mais fácil.
         filtroAtivo() {
-            return Boolean(this.filtros.situacao || this.filtros.servico);
+            return Boolean(this.filtros.situacao || this.filtros.servico || this.filtros.busca.trim());
         },
 
-        payloadCampos() {
-            if (!this.payload) {
-                return [];
-            }
+        totalGeral() {
+            return Object.values(this.totais).reduce((soma, n) => soma + n, 0);
+        },
 
-            const mascarados = ['cpfCidadao', 'email', 'nomeCidadao'];
+        // da página carregada, as que podem voltar à fila
+        selecionaveis() {
+            return this.registros.filter(registro => this.selecionavel(registro));
+        },
 
-            return Object.entries(this.payload).map(([chave, valor]) => ({
-                chave,
-                valor: typeof valor === 'boolean' ? String(valor) : valor,
-                mascarado: mascarados.includes(chave),
-            }));
+        paginaToda() {
+            return this.selecionaveis.length > 0 && this.selecionaveis.every(registro => this.selecionados[registro.id]);
+        },
+
+        totalSelecionadas() {
+            return Object.keys(this.selecionados).length;
+        },
+
+        acimaDoTeto() {
+            return this.totalSelecionadas > this.status.loteMaximo;
+        },
+
+        podeDevolverSelecionadas() {
+            return this.totalSelecionadas > 0 && !this.acimaDoTeto && !this.devolvendoSelecionadas;
+        },
+
+        podeDevolverTodas() {
+            return this.filtros.situacao === 'recusado' && this.total > 0;
+        },
+
+        // quantas saem neste clique: o total do filtro, até o teto
+        loteTamanho() {
+            return Math.min(this.total, this.status.loteMaximo);
         },
     },
 
     mounted() {
         this.carregarStatus();
         this.carregar();
+    },
+
+    beforeUnmount() {
+        this.tempoReal = false;
+        this.cancelarLeitura();
     },
 
     methods: {
@@ -80,26 +114,25 @@ app.component('govbr-satisfaction-requests', {
                     this.status = await response.json();
                 }
             } catch (error) {
-                // o aviso de configuração é acessório: a lista abaixo continua
-                // utilizável sem ele, então uma falha aqui não vira mensagem
             }
         },
 
-        // `acumular` anexa a página nova ao que já está na tela, em vez de
-        // trocar: a lista é varrida de cima a baixo à procura de um registro, e
-        // trocar o conteúdo faria perder o lugar a cada avanço.
+        urlDaPagina(pagina) {
+            return Utils.createUrl('govbr-satisfaction-requests', 'index', {
+                pagina,
+                situacao: this.filtros.situacao,
+                servico: this.filtros.servico,
+                busca: this.filtros.busca.trim(),
+            });
+        },
+
+        // anexa a página
         async carregar(acumular = false) {
             this.carregando = true;
             const geracao = ++this.geracao;
 
             try {
-                const url = Utils.createUrl('govbr-satisfaction-requests', 'index', {
-                    pagina: this.pagina,
-                    situacao: this.filtros.situacao,
-                    servico: this.filtros.servico,
-                });
-
-                const response = await fetch(url);
+                const response = await fetch(this.urlDaPagina(this.pagina));
                 const data = await response.json();
 
                 if (geracao !== this.geracao) {
@@ -107,6 +140,11 @@ app.component('govbr-satisfaction-requests', {
                 }
 
                 if (!response.ok) {
+                    // devolve a página avançada pelo clique
+                    if (acumular) {
+                        this.pagina -= 1;
+                    }
+
                     this.messages.error(data.error || this.text('erroAoCarregar'));
                     return;
                 }
@@ -118,8 +156,7 @@ app.component('govbr-satisfaction-requests', {
                 this.totais = data.totais;
             } catch (error) {
                 if (geracao === this.geracao) {
-                    // devolve a página avançada pelo clique: sem isto, o próximo
-                    // "Carregar Mais" depois de um erro pularia um trecho da lista
+                    // devolve a página avançada pelo clique
                     if (acumular) {
                         this.pagina -= 1;
                     }
@@ -133,55 +170,270 @@ app.component('govbr-satisfaction-requests', {
             }
         },
 
-        async verPayload(id, abrir) {
-            abrir();
+        alternarTempoReal() {
+            this.tempoReal = !this.tempoReal;
 
-            this.payload = null;
-            this.payloadMotivo = null;
-            this.payloadReconstruido = false;
-            this.carregandoPayload = true;
+            if (this.tempoReal) {
+                this.atualizar();
+                this.agendarLeitura();
+            } else {
+                this.cancelarLeitura();
+            }
+        },
 
-            // mesma guarda do carregar(): abrir dois conteúdos em sequência
-            // rápida não pode deixar a resposta antiga sobrescrever a nova
-            const geracao = ++this.geracaoPayload;
+        // próxima leitura só depois que a atual termina
+        agendarLeitura() {
+            this.cancelarLeitura();
+
+            this.proximaLeitura = setTimeout(async () => {
+                if (!document.hidden && !this.carregando) {
+                    await this.atualizar();
+                }
+
+                if (this.tempoReal) {
+                    this.agendarLeitura();
+                }
+            }, GOVBR_SATISFACTION_INTERVALO_MONITOR);
+        },
+
+        cancelarLeitura() {
+            if (this.proximaLeitura) {
+                clearTimeout(this.proximaLeitura);
+                this.proximaLeitura = null;
+            }
+        },
+
+        // relê as páginas já carregadas, sem indicador de carregamento
+        async atualizar() {
+            if (this.carregando) {
+                return;
+            }
+
+            const geracao = ++this.geracao;
 
             try {
-                const response = await fetch(Utils.createUrl('govbr-satisfaction-requests', 'payload', { id }));
-                const data = await response.json();
+                let registros = [];
+                let data = null;
 
-                if (geracao !== this.geracaoPayload) {
+                for (let pagina = 1; pagina <= Math.max(1, this.pagina); pagina++) {
+                    const response = await fetch(this.urlDaPagina(pagina));
+                    data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(data.error);
+                    }
+
+                    registros = registros.concat(data.registros);
+                }
+
+                if (geracao !== this.geracao) {
                     return;
                 }
 
-                if (!response.ok) {
-                    this.payloadMotivo = data.error || this.text('payloadErro');
-                    return;
-                }
-
-                this.payload = data.payload;
-                this.payloadMotivo = data.motivo;
-                this.payloadReconstruido = !!data.reconstruido;
+                this.registros = registros;
+                this.total = data.total;
+                this.paginas = data.paginas;
+                this.totais = data.totais;
+                this.atualizadoEm = Date.now();
+                this.falhouAoAtualizar = false;
+                this.leitura += 1;
             } catch (error) {
-                if (geracao === this.geracaoPayload) {
-                    this.payloadMotivo = this.text('payloadErro');
-                }
-            } finally {
-                if (geracao === this.geracaoPayload) {
-                    this.carregandoPayload = false;
+                // um aviso por queda
+                if (geracao === this.geracao && !this.falhouAoAtualizar) {
+                    this.falhouAoAtualizar = true;
+                    this.messages.error(error.message || this.text('erroAoCarregar'));
                 }
             }
         },
 
-        // clicar no contador filtra por aquela situação; clicar de novo limpa
-        alternarSituacao(situacao) {
-            this.filtros.situacao = this.filtros.situacao === situacao ? '' : situacao;
+        hora(timestamp) {
+            return new McDate(new Date(timestamp)).format({ timeStyle: 'medium' });
+        },
+
+        alternarHistorico(registro) {
+            this.abertos[registro.id] = !this.abertos[registro.id];
+        },
+
+        // recusada e sem CPF voltam à fila; pendente que já falhou antecipa a tentativa
+        podeDevolver(registro) {
+            return ['recusado', 'sem-cpf'].includes(registro.situacao) || this.aguardaRetentativa(registro);
+        },
+
+        aguardaRetentativa(registro) {
+            return registro.situacao === 'pendente' && !!registro.detalhe;
+        },
+
+        // atualiza a linha e os totais no lugar, sem recarregar a lista acumulada
+        async devolverAFila(registro, modal) {
+            this.devolvendo = registro.id;
+            const antecipou = this.aguardaRetentativa(registro);
+
+            try {
+                const response = await fetch(Utils.createUrl('govbr-satisfaction-requests', 'requeue'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: registro.id }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    this.messages.error(data.error || this.text('devolverErro'));
+                    return;
+                }
+
+                this.totais[registro.situacao] = Math.max(0, (this.totais[registro.situacao] || 0) - 1);
+                this.totais[data.situacao] = (this.totais[data.situacao] || 0) + 1;
+
+                registro.situacao = data.situacao;
+                registro.tentativas = data.tentativas;
+                registro.disparada = data.disparada;
+                this.versoes[registro.id] = (this.versoes[registro.id] || 0) + 1;
+
+                modal.close();
+                this.messages.success(this.text(antecipou ? 'tentarAgoraFeito' : 'devolvido'));
+            } catch (error) {
+                this.messages.error(this.text('devolverErro'));
+            } finally {
+                this.devolvendo = null;
+            }
+        },
+
+        // todas as recusadas do filtro atual, escalonadas pelo servidor
+        async devolverTodas(modal) {
+            this.devolvendoTodas = true;
+
+            try {
+                const response = await fetch(Utils.createUrl('govbr-satisfaction-requests', 'requeueAll'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ servico: this.filtros.servico, busca: this.filtros.busca.trim() }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    this.messages.error(data.error || this.text('devolverTodasErro'));
+                    return;
+                }
+
+                modal.close();
+
+                const ultima = this.duracao(Math.max(0, data.devolvidas - 1) * data.intervalo);
+                this.messages.success(this.formatar('devolverTodasFeito', data.devolvidas, ultima));
+
+                if (data.restantes > 0) {
+                    this.messages.alert(this.formatar('devolverTodasRestantes', data.restantes));
+                }
+
+                this.filtrar();
+            } catch (error) {
+                this.messages.error(this.text('devolverTodasErro'));
+            } finally {
+                this.devolvendoTodas = false;
+            }
+        },
+
+        // "40 s", "17 min", "1 h 23 min"
+        duracao(segundos) {
+            if (segundos < 60) return `${segundos} s`;
+
+            const min = Math.round(segundos / 60);
+            if (min < 60) return `${min} min`;
+
+            const h = Math.floor(min / 60);
+            const resto = min % 60;
+            return resto ? `${h} h ${resto} min` : `${h} h`;
+        },
+
+        escolherSituacao(situacao) {
+            this.filtros.situacao = situacao;
             this.filtrar();
         },
 
+        // espera a digitação parar
+        buscar() {
+            clearTimeout(this.esperaBusca);
+            this.esperaBusca = setTimeout(() => this.filtrar(), 500);
+        },
+
         limparFiltros() {
+            clearTimeout(this.esperaBusca);
             this.filtros.situacao = '';
             this.filtros.servico = '';
+            this.filtros.busca = '';
             this.filtrar();
+        },
+
+        selecionavel(registro) {
+            return ['recusado', 'sem-cpf'].includes(registro.situacao);
+        },
+
+        alternarSelecao(registro) {
+            const selecionados = { ...this.selecionados };
+
+            if (selecionados[registro.id]) {
+                delete selecionados[registro.id];
+            } else {
+                selecionados[registro.id] = true;
+            }
+
+            this.selecionados = selecionados;
+        },
+
+        // marca ou desmarca as selecionáveis da página
+        alternarPagina() {
+            const selecionados = { ...this.selecionados };
+            const marcar = !this.paginaToda;
+
+            this.selecionaveis.forEach(registro => {
+                if (marcar) {
+                    selecionados[registro.id] = true;
+                } else {
+                    delete selecionados[registro.id];
+                }
+            });
+
+            this.selecionados = selecionados;
+        },
+
+        limparSelecao() {
+            this.selecionados = {};
+        },
+
+        async devolverSelecionadas(modal) {
+            this.devolvendoSelecionadas = true;
+
+            try {
+                const response = await fetch(Utils.createUrl('govbr-satisfaction-requests', 'requeueSelected'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: Object.keys(this.selecionados).map(Number) }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    this.messages.error(data.error || this.text('devolverSelecionadasErro'));
+                    return;
+                }
+
+                modal.close();
+
+                const ultima = this.duracao(Math.max(0, data.devolvidas - 1) * data.intervalo);
+                this.messages.success(this.formatar('devolverTodasFeito', data.devolvidas, ultima));
+
+                if (data.ignoradas > 0) {
+                    this.messages.alert(this.formatar('devolverSelecionadasIgnoradas', data.ignoradas));
+                }
+
+                this.selecionados = {};
+                this.filtrar();
+            } catch (error) {
+                this.messages.error(this.text('devolverSelecionadasErro'));
+            } finally {
+                this.devolvendoSelecionadas = false;
+            }
         },
 
         filtrar() {
@@ -194,93 +446,24 @@ app.component('govbr-satisfaction-requests', {
             this.carregar(true);
         },
 
-        // A tabela mostra só o começo do motivo: a recusa do BSC vem com a
-        // pilha inteira do Java, e despejar isso na célula empurra a linha
-        // para cinco alturas. O texto completo fica no modal, e o title
-        // atende quem passar o mouse.
+        // primeira frase do motivo, até 70 caracteres
         resumo(detalhe) {
             if (!detalhe) {
                 return '';
             }
 
-            // corta na primeira frase, que é onde mora o que interessa
             const frase = detalhe.split(/[.;]\s/)[0];
 
             return frase.length > 70 ? frase.slice(0, 70) + '…' : frase;
         },
 
-        // Copiar é o caminho normal daqui: o conteúdo vai para um chamado, um
-        // e-mail ao BSC ou o Postman, e selecionar JSON num bloco rolável é
-        // trabalhoso.
-        //
-        // A área de transferência moderna exige contexto seguro (HTTPS ou
-        // localhost); o textarea temporário cobre instalações em HTTP.
-        async copiar(texto, chave) {
-            try {
-                if (navigator.clipboard && window.isSecureContext) {
-                    await navigator.clipboard.writeText(texto);
-                } else {
-                    const campo = document.createElement('textarea');
-                    campo.value = texto;
-                    campo.style.position = 'fixed';
-                    campo.style.opacity = '0';
-                    document.body.appendChild(campo);
-                    campo.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(campo);
-                }
-
-                this.copiado = chave;
-                setTimeout(() => {
-                    if (this.copiado === chave) {
-                        this.copiado = null;
-                    }
-                }, 2000);
-            } catch (error) {
-                this.messages.error(this.text('copiarErro'));
-            }
-        },
-
-        // O payload no mesmo formato da resposta: os dois são JSON de API, e
-        // alternar entre lista de campos e bloco de código obrigaria a mudar de
-        // leitura no meio do modal.
-        formatarJson(valor) {
-            return JSON.stringify(valor, null, 2);
-        },
-
-        // O corpo já chega limpo do HttpClient. O filtro aqui é para as linhas
-        // gravadas antes dessa limpeza existir, que ainda carregam a pilha de
-        // exceção do Java — sem ele, o histórico continuaria ilegível.
-        formatarResposta(corpo) {
-            const ruido = ['stackTrace', 'suppressed', 'cause', 'localizedMessage', 'instance', 'type'];
-
-            try {
-                const json = JSON.parse(corpo);
-
-                if (json && typeof json === 'object' && !Array.isArray(json)) {
-                    ruido.forEach((chave) => delete json[chave]);
-                }
-
-                return JSON.stringify(json, null, 2);
-            } catch (e) {
-                // o proxy responde texto puro ("no healthy upstream")
-                return corpo;
-            }
-        },
-
-        // as situações compartilham os tons do mc-status: verde para o que
-        // seguiu, amarelo para o que aguarda, vermelho para o que não sairá
         tom(situacao) {
-            if (situacao === 'enviado') return 'success';
-            if (situacao === 'recusado') return 'danger';
-            if (situacao === 'pendente') return 'warning';
-            return 'danger';
+            return { enviado: 'success', pendente: 'warning' }[situacao] ?? 'danger';
         },
 
-        // mesma formatação do Security: McDate respeita o idioma configurado
         quando(timestamp) {
             if (!timestamp) {
-                return '—';
+                return '-';
             }
 
             const data = new McDate(new Date(timestamp * 1000));

@@ -7,6 +7,7 @@
 use MapasCulturais\i;
 
 $this->import('
+    govbr-satisfaction-dispatches
     mc-alert
     mc-card
     mc-icon
@@ -21,7 +22,7 @@ $this->import('
     </mc-alert>
 
     <mc-alert type="danger" v-if="status.faltando.length">
-        {{ text('faltandoConfig').replace('%s', status.faltando.join(', ')) }}
+        {{ formatar('faltandoConfig', status.faltando.join(', ')) }}
     </mc-alert>
 
     <mc-card>
@@ -32,54 +33,160 @@ $this->import('
         <template #content>
             <p class="govbr-satisfaction__lead">{{ text('disparadoExplicacao') }}</p>
 
-            <div class="govbr-satisfaction__toolbar">
-                <div class="govbr-satisfaction__totals">
-                    <button
-                        v-for="situacao in situacoes"
-                        :key="situacao"
-                        type="button"
-                        class="govbr-satisfaction__total"
-                        :class="{'govbr-satisfaction__total--active': filtros.situacao === situacao}"
-                        :aria-pressed="filtros.situacao === situacao"
-                        @click="alternarSituacao(situacao)">
-                        <strong>{{ totais[situacao] || 0 }}</strong>
-                        <span>{{ text(situacao) }}</span>
-                    </button>
+            <form class="govbr-satisfaction__filtros" @submit.prevent>
+                <div class="field">
+                    <label for="govbr-satisfaction-busca"><?= i::__('Buscar') ?></label>
+                    <input
+                        id="govbr-satisfaction-busca"
+                        type="search"
+                        v-model="filtros.busca"
+                        :placeholder="text('buscar')"
+                        @input="buscar">
                 </div>
 
-                <div class="govbr-satisfaction__filters">
-                    <div class="field">
-                        <label for="govbr-satisfaction-servico"><?= i::__('Serviço') ?></label>
-                        <select id="govbr-satisfaction-servico" v-model="filtros.servico" @change="filtrar">
-                            <option value="">{{ text('todos') }}</option>
-                            <option v-for="servico in status.servicos" :key="servico.id" :value="servico.id">
-                                {{ text(servico.chave) }}
-                            </option>
-                        </select>
-                    </div>
+                <div class="field">
+                    <label for="govbr-satisfaction-servico"><?= i::__('Serviço') ?></label>
+                    <select id="govbr-satisfaction-servico" v-model="filtros.servico" @change="filtrar">
+                        <option value="">{{ text('todos') }}</option>
+                        <option v-for="servico in status.servicos" :key="servico.id" :value="servico.id">
+                            {{ text(servico.chave) }}
+                        </option>
+                    </select>
+                </div>
+            </form>
+
+            <div class="govbr-satisfaction__barra">
+            <div class="govbr-satisfaction__pilulas" role="group" :aria-label="text('filtrarSituacao')">
+                <button
+                    type="button"
+                    class="govbr-satisfaction__pilula"
+                    :class="{'govbr-satisfaction__pilula--ativa': !filtros.situacao}"
+                    :aria-pressed="!filtros.situacao"
+                    @click="escolherSituacao('')">
+                    {{ text('todas') }} <span>{{ totalGeral }}</span>
+                </button>
+
+                <button
+                    v-for="situacao in situacoes"
+                    :key="situacao"
+                    type="button"
+                    class="govbr-satisfaction__pilula"
+                    :class="{'govbr-satisfaction__pilula--ativa': filtros.situacao === situacao}"
+                    :aria-pressed="filtros.situacao === situacao"
+                    @click="escolherSituacao(situacao)">
+                    {{ text(situacao) }} <span>{{ totais[situacao] || 0 }}</span>
+                </button>
+            </div>
+
+            <div class="govbr-satisfaction__monitor">
+                <span class="govbr-satisfaction__hint" v-if="tempoReal && atualizadoEm" aria-live="polite">
+                    {{ formatar('atualizadoEm', hora(atualizadoEm)) }}
+                </span>
+
+                <button type="button" class="button button--primary-outline button--sm" v-if="!tempoReal" :disabled="carregando" @click="atualizar">
+                    {{ text('atualizar') }}
+                </button>
+
+                <!-- sólido enquanto monitora -->
+                <button
+                    type="button"
+                    :class="['button', 'button--sm', tempoReal ? 'button--primary' : 'button--primary-outline']"
+                    :aria-pressed="tempoReal"
+                    @click="alternarTempoReal">
+                    <span class="govbr-satisfaction__pulso" v-if="tempoReal"></span>
+                    {{ tempoReal ? text('pausar') : text('tempoReal') }}
+                </button>
+            </div>
+            </div>
+
+            <!-- seleção: persiste entre páginas e filtros -->
+            <div class="govbr-satisfaction__acoes" v-if="registros.length || totalSelecionadas">
+                <label class="govbr-satisfaction__selecionar-todas">
+                    <input
+                        type="checkbox"
+                        :checked="paginaToda"
+                        :disabled="!selecionaveis.length"
+                        @change="alternarPagina">
+                    {{ text('selecionarTodas') }}
+                </label>
+
+                <div class="govbr-satisfaction__resumo">
+                    <span class="govbr-satisfaction__contador">{{ formatar('selecionadas', totalSelecionadas) }}</span>
+
+                    <span class="govbr-satisfaction__limite" v-if="acimaDoTeto">
+                        {{ formatar('acimaDoTeto', status.loteMaximo) }}
+                    </span>
+
+                    <button type="button" class="button button--text button--sm" v-if="totalSelecionadas" @click="limparSelecao">
+                        {{ text('limparSelecao') }}
+                    </button>
+
+                    <mc-modal classes="govbr-satisfaction__modal" :title="text('devolverSelecionadasTitulo')">
+                        <template #default>
+                            <p>{{ formatar('devolverTodasConfirmacao', totalSelecionadas, status.loteIntervalo, duracao(Math.max(0, totalSelecionadas - 1) * status.loteIntervalo)) }}</p>
+                        </template>
+
+                        <template #actions="modal">
+                            <button class="button button--text button--md" @click="modal.close()">
+                                <?= i::__('Cancelar') ?>
+                            </button>
+                            <button
+                                class="button button--primary button--md"
+                                :class="{disabled: devolvendoSelecionadas}"
+                                :disabled="devolvendoSelecionadas"
+                                @click="devolverSelecionadas(modal)">
+                                <?= i::__('Confirmar') ?>
+                            </button>
+                        </template>
+
+                        <template #button="modal">
+                            <button
+                                type="button"
+                                class="button button--primary button--sm govbr-satisfaction__bulk"
+                                :disabled="!podeDevolverSelecionadas"
+                                @click="modal.open()">
+                                <mc-icon name="govbr-satisfaction-requeue"></mc-icon>
+                                {{ formatar('devolverSelecionadas', totalSelecionadas) }}
+                            </button>
+                        </template>
+                    </mc-modal>
                 </div>
             </div>
 
-            <!--
-                O spinner só aparece quando não há nada na tela. Escondendo a
-                tabela a cada "Carregar Mais", a lista sumiria e voltaria a cada
-                avanço — o contrário do que a acumulação existe para fazer, que é
-                não perder o lugar. Enquanto carrega, o botão fica desabilitado.
-            -->
+            <!-- lote: todas as recusadas do filtro, além da página -->
+            <div class="govbr-satisfaction__lote" v-if="podeDevolverTodas">
+                <span>{{ formatar('loteResumo', total) }}</span>
+                <mc-modal classes="govbr-satisfaction__modal" :title="text('devolverTodasTitulo')">
+                    <template #default>
+                        <p>{{ formatar('devolverTodasConfirmacao', loteTamanho, status.loteIntervalo, duracao(Math.max(0, loteTamanho - 1) * status.loteIntervalo)) }}</p>
+                        <p class="govbr-satisfaction__nota" v-if="total > loteTamanho">{{ formatar('devolverTodasTeto', loteTamanho, total) }}</p>
+                    </template>
+
+                    <template #actions="modal">
+                        <button class="button button--text button--md" @click="modal.close()">
+                            <?= i::__('Cancelar') ?>
+                        </button>
+                        <button
+                            class="button button--primary button--md"
+                            :class="{disabled: devolvendoTodas}"
+                            :disabled="devolvendoTodas"
+                            @click="devolverTodas(modal)">
+                            <?= i::__('Confirmar') ?>
+                        </button>
+                    </template>
+
+                    <template #button="modal">
+                        <button class="button button--primary-outline button--sm govbr-satisfaction__bulk" @click="modal.open()">
+                            <mc-icon name="govbr-satisfaction-requeue"></mc-icon>
+                            {{ formatar('devolverTodas', total) }}
+                        </button>
+                    </template>
+                </mc-modal>
+            </div>
+
             <mc-loading :condition="carregando && !registros.length"></mc-loading>
 
-            <!--
-                Lista vazia por filtro e lista vazia de verdade usam o mesmo
-                bloco: nos dois casos não há nada de errado acontecendo, e um
-                aviso colorido daria a essa situação um peso que ela não tem. O
-                que muda é a mensagem, e a saída oferecida.
-
-                A condição é escrita por inteiro em vez de `v-else-if`: o irmão
-                acima é um componente com a prop `condition`, não uma diretiva,
-                e encadear nele deixaria o `v-else-if` sem `v-if` adjacente —
-                o Vue não resolveria a diretiva e o bloco apareceria sempre,
-                empilhado sobre a tabela cheia.
-            -->
+            <!-- lista vazia -->
             <div class="govbr-satisfaction__empty" v-if="!registros.length && !carregando">
                 <mc-icon name="govbr-satisfaction"></mc-icon>
 
@@ -97,135 +204,108 @@ $this->import('
             </div>
 
             <template v-if="registros.length">
-                <div class="govbr-satisfaction__table-wrapper">
-                    <table class="govbr-satisfaction__table">
-                        <thead>
-                            <tr>
-                                <th><?= i::__('Serviço') ?></th>
-                                <th><?= i::__('Pessoa') ?></th>
-                                <th><?= i::__('Origem') ?></th>
-                                <th><?= i::__('Situação') ?></th>
-                                <th><?= i::__('Registrada') ?></th>
-                                <th><?= i::__('Disparada') ?></th>
-                                <th class="govbr-satisfaction__table-actions"></th>
-                            </tr>
-                        </thead>
+                <ul class="govbr-satisfaction__lista">
+                    <li
+                        v-for="registro in registros"
+                        :key="registro.id"
+                        class="govbr-request"
+                        :class="{'govbr-request--aberta': abertos[registro.id]}">
+                        <div class="govbr-request__linha">
+                            <label class="govbr-request__selecao">
+                                <input
+                                    type="checkbox"
+                                    :checked="!!selecionados[registro.id]"
+                                    :disabled="!selecionavel(registro)"
+                                    :aria-label="formatar('selecionar', registro.id)"
+                                    @change="alternarSelecao(registro)">
+                            </label>
 
-                        <tbody>
-                            <tr v-for="registro in registros" :key="registro.id">
-                                <td>{{ rotuloServico(registro.servico) }}</td>
+                            <div class="govbr-request__info">
+                                <h4 class="govbr-request__servico">{{ rotuloServico(registro.servico) }}</h4>
 
-                                <td>
-                                    {{ registro.pessoa }}
-                                    <small>#{{ registro.userId }}</small>
-                                </td>
-
-                                <td>
+                                <p class="govbr-request__meta">
+                                    <span>{{ registro.pessoa }} <small>#{{ registro.userId }}</small></span>
                                     <span v-if="registro.origem">{{ registro.origem }}</span>
                                     <span class="govbr-satisfaction__muted" v-else>{{ text('cadastroDaConta') }}</span>
-                                </td>
+                                    <span>{{ formatar('registradaEm', quando(registro.registrada)) }}</span>
+                                </p>
 
-                                <td>
-                                    <span class="mc-status" :class="'mc-status--' + tom(registro.situacao)">
-                                        <mc-icon name="dot"></mc-icon>
-                                        <span>{{ text(registro.situacao) }}</span>
-                                    </span>
+                                <p class="govbr-request__detalhe" v-if="registro.detalhe" :title="registro.detalhe">
+                                    {{ resumo(registro.detalhe) }}
+                                </p>
+                            </div>
 
-                                    <!--
-                                        O que a API respondeu, quando há algo a
-                                        dizer. Sem isto, "Recusado" não explica
-                                        se o problema é do payload ou do BSC, e a
-                                        resposta só existiria no log do servidor.
+                            <div class="govbr-request__situacao">
+                                <span class="mc-status" :class="'mc-status--' + tom(registro.situacao)">
+                                    <mc-icon name="dot"></mc-icon>
+                                    <span>{{ text(registro.situacao) }}</span>
+                                </span>
 
-                                        Só a mensagem: o código HTTP fica na
-                                        coluna, para quem for investigar, mas na
-                                        tabela seria ruído — "Avaliação já
-                                        enviada" diz o que importa, "500" não.
-                                    -->
-                                    <small class="govbr-satisfaction__detalhe" v-if="registro.detalhe" :title="registro.detalhe">
-                                        {{ resumo(registro.detalhe) }}
-                                    </small>
-                                </td>
+                                <small v-if="registro.disparada">{{ formatar('disparadaEm', quando(registro.disparada)) }}</small>
+                            </div>
 
-                                <td class="govbr-satisfaction__date">{{ quando(registro.registrada) }}</td>
-                                <td class="govbr-satisfaction__date">{{ quando(registro.disparada) }}</td>
+                            <div class="govbr-request__acoes">
+                                <mc-modal classes="govbr-satisfaction__modal" :title="text(aguardaRetentativa(registro) ? 'tentarAgoraTitulo' : 'devolverTitulo')" v-if="podeDevolver(registro)">
+                                    <template #default>
+                                        <p v-if="aguardaRetentativa(registro)">{{ text('tentarAgoraConfirmacao') }}</p>
+                                        <p v-else>{{ text(registro.situacao === 'sem-cpf' ? 'devolverConfirmacaoSemCpf' : 'devolverConfirmacao') }}</p>
+                                        <p class="govbr-satisfaction__nota" v-if="registro.situacao === 'recusado'">
+                                            {{ formatar('tentativas', registro.tentativas) }}
+                                        </p>
+                                    </template>
 
-                                <td class="govbr-satisfaction__table-actions">
-                                    <mc-modal classes="govbr-satisfaction__modal" :title="text('payloadTitulo')">
-                                        <template #button="{open}">
-                                            <button class="button button--primary-outline button--sm" @click="verPayload(registro.id, open)">
-                                                {{ text('ver') }}
-                                            </button>
-                                        </template>
+                                    <template #actions="modal">
+                                        <button class="button button--text button--md" @click="modal.close()">
+                                            <?= i::__('Cancelar') ?>
+                                        </button>
+                                        <button
+                                            class="button button--primary button--md"
+                                            :class="{disabled: devolvendo === registro.id}"
+                                            :disabled="devolvendo === registro.id"
+                                            @click="devolverAFila(registro, modal)">
+                                            <?= i::__('Confirmar') ?>
+                                        </button>
+                                    </template>
 
-                                        <template #default>
-                                            <!--
-                                                O que saiu vem antes do que voltou:
-                                                a leitura natural é "enviei isto,
-                                                recebi aquilo", e em auditoria o
-                                                payload é o documento principal.
-                                            -->
-                                            <div class="govbr-satisfaction__bloco">
-                                                <h4>
-                                                    {{ text('payloadTitulo') }}
-                                                    <span class="govbr-satisfaction__http govbr-satisfaction__http--aviso" v-if="payloadReconstruido">
-                                                        {{ text('payloadPreviaSelo') }}
-                                                    </span>
+                                    <template #button="modal">
+                                        <button
+                                            type="button"
+                                            class="button button--primary-noborder button--sm govbr-satisfaction__acao"
+                                            :title="text(aguardaRetentativa(registro) ? 'tentarAgora' : 'devolver')"
+                                            :aria-label="text(aguardaRetentativa(registro) ? 'tentarAgora' : 'devolver')"
+                                            @click="modal.open()">
+                                            <mc-icon :name="aguardaRetentativa(registro) ? 'govbr-satisfaction-retry' : 'govbr-satisfaction-requeue'"></mc-icon>
+                                        </button>
+                                    </template>
+                                </mc-modal>
 
-                                                    <button
-                                                        type="button"
-                                                        class="govbr-satisfaction__copiar"
-                                                        v-if="payload && !carregandoPayload"
-                                                        @click="copiar(formatarJson(payload), 'payload-' + registro.id)">
-                                                        {{ copiado === 'payload-' + registro.id ? text('copiado') : text('copiar') }}
-                                                    </button>
-                                                </h4>
+                                <button
+                                    type="button"
+                                    class="button button--primary-noborder button--sm govbr-satisfaction__acao"
+                                    :title="text('historico')"
+                                    :aria-label="text('historico')"
+                                    :aria-expanded="!!abertos[registro.id]"
+                                    :aria-controls="'govbr-satisfaction-historico-' + registro.id"
+                                    @click="alternarHistorico(registro)">
+                                    <mc-icon name="govbr-satisfaction-history"></mc-icon>
+                                </button>
+                            </div>
+                        </div>
 
-                                                <!--
-                                                    Só na prévia. Enviado sempre
-                                                    tem cópia: sendPayload é
-                                                    gravado no mesmo save que
-                                                    marca STATUS_SENT, então não
-                                                    existe enviado sem ela.
-                                                -->
-                                                <p class="govbr-satisfaction__nota" v-if="payloadReconstruido">{{ text('payloadPrevia') }}</p>
-
-                                                <mc-loading :condition="carregandoPayload"></mc-loading>
-
-                                                <p class="govbr-satisfaction__nota" v-if="!carregandoPayload && payloadMotivo">{{ payloadMotivo }}</p>
-
-                                                <pre class="govbr-satisfaction__corpo" v-else-if="!carregandoPayload && payload">{{ formatarJson(payload) }}</pre>
-                                            </div>
-
-                                            <div class="govbr-satisfaction__bloco" v-if="registro.detalhe || registro.resposta">
-                                                <h4>
-                                                    {{ text('respostaTitulo') }}
-                                                    <span class="govbr-satisfaction__http" v-if="registro.httpStatus">HTTP {{ registro.httpStatus }}</span>
-
-                                                    <button
-                                                        type="button"
-                                                        class="govbr-satisfaction__copiar"
-                                                        v-if="registro.resposta"
-                                                        @click="copiar(formatarResposta(registro.resposta), 'resposta-' + registro.id)">
-                                                        {{ copiado === 'resposta-' + registro.id ? text('copiado') : text('copiar') }}
-                                                    </button>
-                                                </h4>
-
-                                                <p class="govbr-satisfaction__nota" v-if="registro.detalhe">{{ registro.detalhe }}</p>
-
-                                                <pre class="govbr-satisfaction__corpo" v-if="registro.resposta">{{ formatarResposta(registro.resposta) }}</pre>
-                                            </div>
-                                        </template>
-                                    </mc-modal>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
+                        <div class="govbr-request__historico" v-if="abertos[registro.id]" :id="'govbr-satisfaction-historico-' + registro.id">
+                            <govbr-satisfaction-dispatches
+                                :key="registro.id + '-' + (versoes[registro.id] || 0)"
+                                :request-id="registro.id"
+                                :revelacao="status.revelacao"
+                                :leitura="leitura">
+                            </govbr-satisfaction-dispatches>
+                        </div>
+                    </li>
+                </ul>
 
                 <div class="govbr-satisfaction__more" v-if="pagina < paginas">
                     <span class="govbr-satisfaction__hint">
-                        {{ text('contagem').replace('%1', registros.length).replace('%2', total) }}
+                        {{ formatar('contagem', registros.length, total) }}
                     </span>
 
                     <button

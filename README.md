@@ -1,132 +1,91 @@
 # GovBrSatisfaction
 
-Integração da API de Avaliação de Satisfação com Serviços Públicos Digitais (gov.br, via BSC) aos seis serviços do Ministério da Cultura publicados no Portal de Serviços.
-
-Ao concluir um dos serviços, o Mapa grava uma solicitação e um job avisa o BSC, que envia ao cidadão um e-mail com o link do questionário. A avaliação acontece em site do gov.br: não há tela de avaliação nem pedido de consentimento aqui.
-
-> Faltam o ID do órgão no Portal de Serviços e os valores de homologação, pendentes com a equipe do BSC — até lá, só o modo de desenvolvimento é operável.
+Integra os serviços do Ministério da Cultura publicados no Portal de Serviços à API de Avaliação de Satisfação do gov.br (BSC). Ao concluir um serviço, o cidadão recebe do gov.br um e-mail com o questionário.
 
 ## Instalação
 
-Ative o plugin em `config/plugins.php`:
+Inclua `GovBrSatisfaction` na lista de plugins de `config/plugins.php`.
 
-```php
-'plugins' => ['MultipleLocalAuth', 'AdminLoginAsUser', 'RecreatePCacheOnLogin', 'SpamDetector', 'Security', 'GovBrSatisfaction']
-```
+Para desligar sem remover, use `enabled => false` na configuração do plugin.
 
-A lista base precisa ser repetida por inteiro: a configuração é montada com `array_merge`, que substitui a chave em vez de fundir os arrays.
-
-Depois, rode as atualizações de banco — criam a tabela `govbr_satisfaction_request` — e compile os assets:
-
-```bash
-pnpm run build
-```
-
-Sem os assets o painel aparece sem estilo.
-
-Para desligar sem remover, declare `enabled` na configuração do plugin, como fazem `Security` e `Metabase`.
-
-## Serviços e gatilhos
+## Serviços
 
 | Serviço | Entidade | Gatilho |
 | --- | --- | --- |
-| Cadastrar-se | User | Criação da conta |
-| Cadastrar coletivo | Agent | Publicação |
+| Cadastrar-se | User | Confirmação do e-mail |
+| Cadastrar coletivo | Agent | Publicação de agente coletivo |
 | Cadastrar oportunidade | Opportunity | Publicação |
 | Cadastrar evento cultural | Event | Publicação |
 | Cadastrar espaço cultural | Space | Publicação |
 | Cadastrar projeto cultural | Project | Publicação |
 
-Cada usuário avalia cada serviço uma única vez, garantido pelo índice único `(user_id, servico)`.
-
-Publicação em subsite diferente do configurado é descartada, não registrada.
+Cada usuário recebe uma pesquisa por serviço, no subsite configurado.
 
 ## Configuração
 
-Por variáveis de ambiente. O código não carrega nenhum valor como padrão, e **faltando qualquer uma, nada é registrado** — o painel aponta quais faltam.
+Obrigatórias:
 
-| Variável | Papel |
+| Variável | Descrição |
 | --- | --- |
-| `AVALIACAO_DEV_MODE` | `TRUE` ou `FALSE`. **Ausente equivale a `TRUE`** |
-| `AVALIACAO_BSC_URL` | Endereço do BSC no ambiente |
-| `AVALIACAO_ORGAO` | ID do MinC no Portal de Serviços |
-| `AVALIACAO_SUBSITE_ID` | ID do subsite do Mapa da Cultura **neste ambiente** (4 em homologação e produção) |
+| `AVALIACAO_DEV_MODE` | `TRUE` ou `FALSE`; ausente equivale a `TRUE` (nada é enviado) |
+| `AVALIACAO_BSC_URL` | Endereço do BSC com o prefixo da API |
+| `AVALIACAO_ORGAO` | ID do órgão no Portal de Serviços |
+| `AVALIACAO_SUBSITE_ID` | ID do subsite atendido |
 | `AVALIACAO_SERVICO_CADASTRO` | ID do serviço "Cadastrar-se" |
 | `AVALIACAO_SERVICO_COLETIVO` | ID do serviço "Cadastrar coletivo" |
 | `AVALIACAO_SERVICO_OPORTUNIDADE` | ID do serviço "Cadastrar oportunidade" |
 | `AVALIACAO_SERVICO_EVENTO` | ID do serviço "Cadastrar evento cultural" |
 | `AVALIACAO_SERVICO_ESPACO` | ID do serviço "Cadastrar espaço cultural" |
 | `AVALIACAO_SERVICO_PROJETO` | ID do serviço "Cadastrar projeto cultural" |
+| `AVALIACAO_BSC_AUTH_TOKEN`, `RCV_BSC_CLIENT_ID`, `RCV_BSC_CLIENT_SECRET` | Credenciais do gateway do BSC |
 
-As credenciais do gateway são as `RCV_BSC_*` já existentes: a autenticação é a mesma da consulta de CNPJ do CulturaViva.
+Opcionais:
 
-### Modo de desenvolvimento
+| Variável | Descrição |
+| --- | --- |
+| `AVALIACAO_CHAVES_PAYLOAD` | Chaves do conteúdo cifrado, `versão:base64` separadas por vírgula; a maior versão cifra |
+| `AVALIACAO_RETENCAO_DIAS` | Dias até apagar o conteúdo cifrado e a resposta do BSC; padrão `180`, `0` desliga |
 
-Com `AVALIACAO_DEV_MODE=TRUE` a solicitação é registrada e o conteúdo é montado, mas **nenhuma requisição HTTP sai da máquina** — o payload carrega CPF, nome e e-mail de cidadão real.
+Gerar uma chave:
 
-É o padrão: sem a variável definida, nada é enviado. A exigência de configuração completa também só vale no modo real.
+```bash
+php -r 'echo "1:".base64_encode(random_bytes(32)), PHP_EOL;'
+```
+
+## Funcionamento
+
+- Cada solicitação é enviada por um job próprio.
+- Cada envio registra suas tentativas, com HTTP, duração, endpoint, payload e resposta.
+- Após 3 falhas a solicitação fica `recusado`; um 4xx, exceto 408 e 429, recusa na hora.
+- Um job diário apaga o conteúdo cifrado e a resposta das tentativas mais antigas que o prazo de retenção.
+
+| Situação | Descrição |
+| --- | --- |
+| `pendente` | Aguardando envio |
+| `enviado` | Enviado ao BSC |
+| `recusado` | Recusado pelo BSC ou tentativas esgotadas |
+| `sem-cpf` | Usuário sem CPF no cadastro |
 
 ## Painel
 
-Página **Satisfação gov.br**, sob Administração, restrita a `saasSuperAdmin` e visível apenas no subsite atendido. Somente leitura.
+Página **Satisfação gov.br**, em Administração, para `saasSuperAdmin`.
 
-Cada linha abre o conteúdo enviado, campo a campo. CPF, nome e e-mail aparecem mascarados e vêm do cadastro atual da pessoa — não são guardados na tabela, então se o cadastro mudou depois do envio, mostram o valor de hoje.
+- Busca por nome, id do usuário ou uuid do envio, com filtros por situação e serviço.
+- Histórico de envios e tentativas de cada solicitação.
+- Ações: **Devolver à fila**, **Tentar agora**, **Devolver selecionadas** e **Devolver todas à fila**.
 
-| Situação | Significado |
-| --- | --- |
-| `pendente` | Registrada, ainda não processada pelo job |
-| `enviado` | O Mapa disparou. **Não** significa que o cidadão recebeu o e-mail |
-| `sem-cpf` | Usuário sem CPF no cadastro; nada foi enviado |
+## Dados pessoais
 
-`pendente` dura segundos em operação normal — o intervalo até a próxima varredura. Vê-lo crescer significa fila de jobs parada.
+- CPF, nome, e-mail e IP são gravados e exibidos mascarados.
+- Com `AVALIACAO_CHAVES_PAYLOAD`, o payload real de cada tentativa é guardado cifrado.
+- `saasSuperAdmin` pode revelar ou copiar o payload real após informar um motivo e a senha da conta, por tempo limitado. Conta sem senha local não revela, e senhas erradas seguidas bloqueiam a liberação.
+- Cada liberação, revelação, cópia e recusa é registrada no MapasBlame, sem a senha nem o payload.
 
 ## Testes
 
-A suíte roda sobre a do repositório principal, com um arquivo de composição extra que ativa o plugin e define as variáveis de ambiente.
-
-**Os comandos abaixo assumem `cwd = tests/` do repositório principal** — os caminhos relativos do override dependem disso.
+A partir de `tests/` do repositório principal:
 
 ```bash
-cd tests
-
-# suíte completa do plugin
 docker compose -f docker-compose.yml -f ../src/plugins/GovBrSatisfaction/tests/docker-compose.yml \
   run --rm mapas pu /var/www/tests/GovBrSatisfaction
-
-# um arquivo
-docker compose -f docker-compose.yml -f ../src/plugins/GovBrSatisfaction/tests/docker-compose.yml \
-  run --rm mapas pu /var/www/tests/GovBrSatisfaction/TriggerTest.php
-
-# um método
-docker compose -f docker-compose.yml -f ../src/plugins/GovBrSatisfaction/tests/docker-compose.yml \
-  run --rm mapas pu /var/www/tests/GovBrSatisfaction/TriggerTest.php --filter "testPublicarEspacoRegistra"
 ```
-
-Sem o `-f` do plugin, a suíte do repositório principal roda normalmente, sem este plugin.
-
-### O que o arquivo de composição faz
-
-| | Por quê |
-|---|---|
-| Monta a pasta do plugin | O bind resolve o caminho no host, então funciona mesmo quando o plugin vive fora do repositório do core. Um link simbólico sozinho não bastaria: dentro do container ele apontaria para um caminho inexistente |
-| Define as variáveis `AVALIACAO_*` | Sem elas o plugin não registra nada, e nenhum teste teria o que exercitar |
-| Força `AVALIACAO_DEV_MODE=TRUE` | É o padrão do plugin, mas explícito aqui para que nenhuma execução da suíte consiga falar com o BSC |
-| Monta `config.d` como `zz-govbr-satisfaction.d` | O prefixo faz o diretório ordenar depois de `config.d` no glob da configuração, ativando o plugin sem editar arquivos do core |
-| Monta `tests/src` em `/var/www/tests/GovBrSatisfaction` | O autoload `Tests\` resolve as classes daqui a partir dali |
-
-### Escrevendo testes
-
-Estenda `Tests\GovBrSatisfaction\TestCase`, não a base do core. Ela cria os dois subsites que as regras de portal exigem, restaura a configuração do plugin e limpa a tabela — sem isso um teste enxerga o que o anterior deixou.
-
-Três armadilhas que custaram caro:
-
-- **A configuração do plugin sobrevive entre testes** e os subsites não: o plugin é singleton da aplicação, os subsites são desfeitos pelo rollback. Um teste que esvazia uma variável deixaria os seguintes rodando com ela vazia.
-- **Publicar exige sessão.** Sem alguém logado, o core entra no caminho de pedido de troca de titularidade e falha antes de o gatilho ser alcançado. Use `publicar()`, que loga como o dono.
-- **`AgentDirector::createAgent()` ignora o tipo pedido** — todo agente sai como coletivo. Use `criarAgente()`, que atribui o tipo direto.
-
-## Armadilhas conhecidas
-
-- **O plugin precisa estar montado no container.** O compose de desenvolvimento monta cada plugin individualmente; sem a linha, a pasta não existe para a aplicação.
-- **Mudança na entidade não tem efeito até limpar o cache de metadados do Doctrine** (`/tmp/symfony-cache` dentro do container). Em deploy resolve sozinho, porque o container é recriado.
-- **`sendStatus`, e não `status`.** `MapasCulturais\Entity::setStatus()` é tipado como `int`; uma propriedade `status` de texto colide com ele.
-- **Os IPs são gravados no gatilho**, não no envio. O job roda em linha de comando, onde `REMOTE_ADDR` é o loopback definido pelo `execute-job.sh`.

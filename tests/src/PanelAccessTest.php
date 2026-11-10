@@ -5,14 +5,7 @@ namespace Tests\GovBrSatisfaction;
 use MapasCulturais\App;
 use Tests\Traits\RequestFactory;
 
-/**
- * Quem pode abrir a página do painel
- *
- * A lista diz quem concluiu qual serviço e quando, e é a única fonte sobre o que
- * foi disparado ao gov.br. Por isso é restrita a quem administra a instalação
- * inteira — e só existe no portal que o plugin atende, já que nos outros o
- * gatilho nunca dispara.
- */
+/** Acesso à página e aos endpoints do painel. */
 class PanelAccessTest extends TestCase
 {
     use RequestFactory;
@@ -31,9 +24,6 @@ class PanelAccessTest extends TestCase
     {
         $this->logout();
 
-        // 401, e não 403: quem não se identificou pode resolver entrando, e quem
-        // se identificou e não tem o papel não. `assertNotSame(200)` aceitaria
-        // 404 e 500 como se fossem o certo.
         $this->assertSame(401, $this->abrir());
     }
 
@@ -51,10 +41,6 @@ class PanelAccessTest extends TestCase
         $this->assertSame(200, $this->abrir());
     }
 
-    /**
-     * Fora do portal atendido a página não existe — e o item some do menu junto.
-     * Só esconder do menu deixaria a tela acessível por URL.
-     */
     function testNaoExisteEmOutroPortal()
     {
         $this->login($this->userDirector->createUser('saasSuperAdmin'));
@@ -63,14 +49,99 @@ class PanelAccessTest extends TestCase
         $this->assertSame(404, $this->abrir());
     }
 
-    function testConsultaExigeAdministradorDaInstalacao()
+    protected function consultar(string $acao, array $params = []): int
+    {
+        $app = App::i();
+        $app->reset();
+        $app->run($this->requestFactory->GET('govbr-satisfaction-requests', $acao, [], $params), false);
+
+        return $app->response->getStatusCode();
+    }
+
+    /**
+     * @dataProvider endpointsDeLeitura
+     */
+    function testConsultaExigeAdministradorDaInstalacao(string $acao)
     {
         $this->login($this->userDirector->createUser());
 
+        $this->assertSame(403, $this->consultar($acao, ['id' => 1]));
+    }
+
+    public static function endpointsDeLeitura(): array
+    {
+        return [
+            'index' => ['index'],
+            'payload' => ['payload'],
+            'dispatches' => ['dispatches'],
+            'status' => ['status'],
+        ];
+    }
+
+    function testAdministradorConsulta()
+    {
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+
+        $this->assertSame(200, $this->consultar('index'));
+        $this->assertSame(200, $this->consultar('status'));
+    }
+
+    /** Os endpoints seguem a página. */
+    function testEndpointsNaoExistemEmOutroPortal()
+    {
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+        $this->noSubsite($this->outroSubsite);
+
+        $this->assertSame(404, $this->consultar('index'));
+        $this->assertSame(404, $this->consultar('dispatches', ['id' => 1]));
+    }
+
+    function testPluginDesligadoResponde503()
+    {
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+        $this->configurar(['enabled' => false]);
+
+        $this->assertSame(503, $this->consultar('index'));
+    }
+
+    /** POST de formulário comum, sem o cabeçalho que a tela envia. */
+    protected function escrever(string $acao, array $dados, array $cabecalhos = []): int
+    {
         $app = App::i();
         $app->reset();
-        $app->run($this->requestFactory->GET('govbr-satisfaction-requests', 'index'), false);
+        $app->run($this->requestFactory->POST('govbr-satisfaction-requests', $acao, [], $dados, headers: $cabecalhos, ajax: false), false);
 
-        $this->assertSame(403, $app->response->getStatusCode());
+        return $app->response->getStatusCode();
+    }
+
+    /**
+     * Escrita que não vem da tela é recusada.
+     *
+     * @dataProvider endpointsDeEscrita
+     */
+    function testEscritaForaDaTelaEhRecusada(string $acao)
+    {
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+
+        $this->assertSame(400, $this->escrever($acao, ['id' => 1, 'ids' => [1], 'tentativa' => 1, 'motivo' => 'motivo de teste']));
+    }
+
+    public static function endpointsDeEscrita(): array
+    {
+        return [
+            'requeue' => ['requeue'],
+            'requeueAll' => ['requeueAll'],
+            'requeueSelected' => ['requeueSelected'],
+            'unlockReveal' => ['unlockReveal'],
+            'reveal' => ['reveal'],
+        ];
+    }
+
+    /** JSON com charset é pedido da tela. */
+    function testEscritaEmJsonComCharsetPassa()
+    {
+        $this->login($this->userDirector->createUser('saasSuperAdmin'));
+
+        $this->assertSame(404, $this->escrever('requeue', ['id' => 999999999], ['Content-Type' => 'application/json; charset=utf-8']));
     }
 }

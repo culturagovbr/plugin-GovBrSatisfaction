@@ -4,16 +4,6 @@ use function MapasCulturais\__column_exists;
 use function MapasCulturais\__table_exists;
 use function MapasCulturais\__exec;
 
-/**
- * Atualizações de banco do plugin.
- *
- * A chave leva o nome da tabela: App::_dbUpdates() junta os arquivos com `+=`,
- * e chaves repetidas entre plugins descartariam uma em silêncio.
- *
- * `__exec` e não `__try`, que engole a exceção: o core só deixa de marcar o
- * update como aplicado quando a closure lança, então uma falha silenciosa
- * deixaria a tabela por criar para sempre.
- */
 return [
     'create govbr_satisfaction_request table' => function () {
         if (__table_exists('govbr_satisfaction_request')) {
@@ -51,13 +41,9 @@ return [
             ADD CONSTRAINT FK_govbr_satisfaction_request_subsite
             FOREIGN KEY (subsite_id) REFERENCES subsite (id) ON DELETE SET NULL");
 
-        // A regra é uma avaliação por serviço, por usuário, para sempre. O índice
-        // único é o que garante isso sob concorrência — duas publicações
-        // simultâneas não criam dois registros.
         __exec("CREATE UNIQUE INDEX UNQ_govbr_satisfaction_request__user_servico
             ON govbr_satisfaction_request (user_id, servico)");
 
-        // O job varre pendentes; o painel filtra por situação e por ambiente.
         __exec("CREATE INDEX IDX_govbr_satisfaction_request__subsite
             ON govbr_satisfaction_request (subsite_id)");
         __exec("CREATE INDEX IDX_govbr_satisfaction_request__send_status
@@ -66,9 +52,6 @@ return [
             ON govbr_satisfaction_request (create_timestamp)");
     },
 
-    // Entrada própria, e não acrescentada à criação: instalações que já rodaram
-    // a primeira têm a tabela sem esta coluna, e o guarda de __table_exists
-    // faria aquele bloco inteiro ser pulado.
     'add send_attempts to govbr_satisfaction_request' => function () {
         if (__column_exists('govbr_satisfaction_request', 'send_attempts')) {
             return;
@@ -88,24 +71,93 @@ return [
             ADD COLUMN send_detail VARCHAR(500) NULL");
     },
 
-    // O corpo inteiro, sem truncar. `send_detail` continua existindo como o
-    // resumo que a tabela do painel mostra — derivar isso a cada listagem
-    // obrigaria a trazer o corpo completo de 25 linhas só para exibir uma frase.
-    'add send_response to govbr_satisfaction_request' => function () {
-        if (__column_exists('govbr_satisfaction_request', 'send_response')) {
+    'create govbr_satisfaction_dispatch table' => function () {
+        if (__table_exists('govbr_satisfaction_dispatch')) {
             return;
         }
 
-        __exec("ALTER TABLE govbr_satisfaction_request
-            ADD COLUMN send_response TEXT NULL");
+        __exec("CREATE SEQUENCE govbr_satisfaction_dispatch_id_seq INCREMENT BY 1 MINVALUE 1 START 1");
+
+        __exec("CREATE TABLE govbr_satisfaction_dispatch (
+            id INT NOT NULL DEFAULT nextval('govbr_satisfaction_dispatch_id_seq'),
+            request_id INT NOT NULL,
+            uuid VARCHAR(36) NOT NULL,
+            origin VARCHAR(16) NOT NULL,
+            state VARCHAR(16) NOT NULL,
+            user_id INT NULL,
+            create_timestamp TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL,
+            finish_timestamp TIMESTAMP(0) WITHOUT TIME ZONE NULL,
+            PRIMARY KEY(id)
+        )");
+
+        __exec("ALTER TABLE govbr_satisfaction_dispatch
+            ADD CONSTRAINT FK_govbr_satisfaction_dispatch_request
+            FOREIGN KEY (request_id) REFERENCES govbr_satisfaction_request (id) ON DELETE CASCADE");
+
+        __exec("ALTER TABLE govbr_satisfaction_dispatch
+            ADD CONSTRAINT FK_govbr_satisfaction_dispatch_user
+            FOREIGN KEY (user_id) REFERENCES usr (id) ON DELETE SET NULL");
+
+        __exec("CREATE UNIQUE INDEX UNQ_govbr_satisfaction_dispatch__uuid
+            ON govbr_satisfaction_dispatch (uuid)");
+        __exec("CREATE INDEX IDX_govbr_satisfaction_dispatch__request_created
+            ON govbr_satisfaction_dispatch (request_id, create_timestamp DESC)");
+        __exec("CREATE INDEX IDX_govbr_satisfaction_dispatch__user
+            ON govbr_satisfaction_dispatch (user_id)");
     },
 
-    'add send_payload to govbr_satisfaction_request' => function () {
-        if (__column_exists('govbr_satisfaction_request', 'send_payload')) {
+    'create govbr_satisfaction_attempt table' => function () {
+        if (__table_exists('govbr_satisfaction_attempt')) {
             return;
         }
 
-        __exec("ALTER TABLE govbr_satisfaction_request
-            ADD COLUMN send_payload TEXT NULL");
+        __exec("CREATE SEQUENCE govbr_satisfaction_attempt_id_seq INCREMENT BY 1 MINVALUE 1 START 1");
+
+        __exec("CREATE TABLE govbr_satisfaction_attempt (
+            id INT NOT NULL DEFAULT nextval('govbr_satisfaction_attempt_id_seq'),
+            dispatch_id INT NOT NULL,
+            number SMALLINT NOT NULL,
+            max_attempts SMALLINT NOT NULL,
+            outcome VARCHAR(16) NOT NULL,
+            method VARCHAR(8) NULL,
+            endpoint TEXT NULL,
+            http_status SMALLINT NULL,
+            payload TEXT NULL,
+            response TEXT NULL,
+            response_truncated BOOLEAN NOT NULL DEFAULT FALSE,
+            response_headers TEXT NULL,
+            detail VARCHAR(500) NULL,
+            sent_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL,
+            duration_ms INT NULL,
+            PRIMARY KEY(id)
+        )");
+
+        __exec("ALTER TABLE govbr_satisfaction_attempt
+            ADD CONSTRAINT FK_govbr_satisfaction_attempt_dispatch
+            FOREIGN KEY (dispatch_id) REFERENCES govbr_satisfaction_dispatch (id) ON DELETE CASCADE");
+
+        __exec("CREATE INDEX IDX_govbr_satisfaction_attempt__dispatch
+            ON govbr_satisfaction_attempt (dispatch_id, number)");
+    },
+
+    'drop send_payload and send_response from govbr_satisfaction_request' => function () {
+        foreach (['send_payload', 'send_response'] as $column) {
+            if (__column_exists('govbr_satisfaction_request', $column)) {
+                __exec("ALTER TABLE govbr_satisfaction_request DROP COLUMN {$column}");
+            }
+        }
+    },
+
+    'add payload_sealed to govbr_satisfaction_attempt' => function () {
+        if (__column_exists('govbr_satisfaction_attempt', 'payload_sealed')) {
+            return;
+        }
+
+        __exec("ALTER TABLE govbr_satisfaction_attempt ADD COLUMN payload_sealed TEXT NULL");
+    },
+
+    'drop govbr_satisfaction_reveal table' => function () {
+        __exec("DROP TABLE IF EXISTS govbr_satisfaction_reveal");
+        __exec("DROP SEQUENCE IF EXISTS govbr_satisfaction_reveal_id_seq");
     },
 ];

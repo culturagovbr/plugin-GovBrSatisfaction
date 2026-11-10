@@ -1,24 +1,18 @@
 # Componente `<govbr-satisfaction-requests>`
 
-Consulta das solicitações de pesquisa de satisfação disparadas ao gov.br pelo BSC,
-na página "Satisfação gov.br" do painel.
+Consulta das solicitações de pesquisa de satisfação disparadas ao gov.br pelo BSC, na página "Satisfação gov.br" do painel. Restrito a quem administra a instalação.
 
-Só leitura. As regras da integração estão fechadas com a área e vivem no código
-e no `.env` — uma tela para alterá-las seria um jeito de quebrar por acidente o
-que foi acordado.
+- Uma solicitação por card. A busca aceita nome do agente, id do usuário ou uuid de um envio (`busca` em `GET_index`).
+- As pílulas filtram por situação; os números delas ignoram os filtros aplicados: são o retrato do conjunto.
+- **Atualizar** relê as páginas carregadas. **Monitorar em tempo real** relê a cada 5 segundos, com a aba visível, e atualiza também os históricos abertos.
+- "Disparado" significa que o Mapa enviou, **não** que o cidadão recebeu o e-mail.
+- O card mostra o nome do agente ou, sem ele, o e-mail mascarado.
+- O botão de histórico abre, dentro do card, os envios e as tentativas da solicitação (`<govbr-satisfaction-dispatches>`).
+- Cards `recusado` e `sem-cpf` têm **Devolver à fila** e pendentes que aguardam retentativa têm **Tentar agora**, as duas em `POST_requeue`.
+- Cards `recusado` e `sem-cpf` podem ser selecionados; a seleção vale entre páginas e filtros e sai em **Devolver selecionadas** (`POST_requeueSelected`), até 500 por vez.
+- Com o filtro `recusado`, a barra do lote oferece **Devolver todas à fila** (`POST_requeueAll`).
 
-Os contadores do topo são também o filtro de situação: clicar em um deles filtra
-a lista, clicar de novo limpa. Eles ignoram os filtros aplicados de propósito,
-porque são o retrato do conjunto e precisam continuar válidos enquanto se navega
-dentro de uma situação.
-
-"Disparado" significa que o Mapa enviou a solicitação, e **não** que o cidadão
-recebeu o e-mail: a API não devolve confirmação, e o fluxo segue do lado do
-gov.br. A tela diz isso explicitamente para que a coluna não seja lida como
-entrega.
-
-Não recebe propriedades — busca tudo em `govbr-satisfaction-requests`, restrito a
-quem administra a instalação.
+Não recebe propriedades.
 
 ### Importando componente
 
